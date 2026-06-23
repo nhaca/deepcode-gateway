@@ -43,8 +43,8 @@ function getNextKey(provider) {
 // ===== Version → Model Mapping =====
 const VERSION_MODELS = {
   1: { defaultModel: 'auto', label: 'DeepCode Go' },
-  2: { defaultModel: 'z-ai/glm-4.7-flash-free', label: 'DeepCode Pro' },
-  3: { defaultModel: 'z-ai/glm-5.1', label: 'DeepCode Ultra' },
+  2: { defaultModel: 'z-ai/glm-5.1', label: 'DeepCode Pro' },
+  3: { defaultModel: 'z-ai/glm-5.2-free', label: 'DeepCode Ultra' },
   4: { defaultModel: 'auto', label: 'DeepCode Server 2' },
 };
 

@@ -9,14 +9,14 @@ const V1_MODELS = [
 ];
 
 const V2_MODELS = [
+  { id: 'z-ai/glm-5.1', name: 'GLM 5.1' },
   { id: 'z-ai/glm-4.7-flash-free', name: 'GLM 4.7 Flash Free' },
-  { id: 'z-ai/glm-5.2-free', name: 'GLM 5.2 Free' },
   { id: 'stepfun/step-3.7-flash-free', name: 'Step 3.7 Flash Free' },
   { id: 'auto', name: 'Auto' },
 ];
 
 const V3_MODELS = [
-  { id: 'z-ai/glm-5.1', name: 'GLM 5.1' },
+  { id: 'z-ai/glm-5.2-free', name: 'GLM 5.2 Free' },
   { id: 'auto', name: 'Auto' },
 ];
 
