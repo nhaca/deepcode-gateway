@@ -12,7 +12,7 @@ module.exports = async (req, res) => {
   if (!apiKey) {
     return res.status(401).json({ error: 'Missing API key' });
   }
-  const keyData = verifyApiKey(apiKey);
+  const keyData = await verifyApiKey(apiKey);
   if (!keyData) {
     return res.status(401).json({ error: 'Invalid API key' });
   }

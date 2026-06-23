@@ -196,7 +196,7 @@ async function handleBindDevice(req, res) {
 // ===== Main Chat Handler =====
 async function handleChat(req, res, version, specificModel) {
   // Security check (includes API key, device, user identity, IP consistency, tier access)
-  const sec = securityCheck(req, version);
+  const sec = await securityCheck(req, version);
   if (!sec.ok) {
     return res.status(sec.status).json({ error: sec.error });
   }
