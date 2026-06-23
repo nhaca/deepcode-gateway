@@ -6,11 +6,6 @@ const V1_MODELS = [
   { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B' },
   { id: 'deepseek-ai/deepseek-v4-flash', name: 'DeepSeek V4' },
   { id: 'z-ai/glm-5.1', name: 'GLM 5.1' },
-  { id: 'z-ai/glm-5.2', name: 'GLM 5.2 (Puter)' },
-  { id: 'deepseek/deepseek-v4-pro', name: 'DeepSeek V4 Pro (Puter)' },
-  { id: 'meta-llama/llama-4-maverick', name: 'Llama 4 Maverick (Puter)' },
-  { id: 'qwen/qwen3.7-max', name: 'Qwen 3.7 Max (Puter)' },
-  { id: 'google/gemma-4-31b-it', name: 'Gemma 4 (Puter)' },
 ];
 
 const V2_MODELS = [

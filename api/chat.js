@@ -23,20 +23,14 @@ const PROVIDERS = {
     keys: (process.env.OPENROUTER_KEYS || '').split(',').filter(Boolean),
     priority: 3,
   },
-  puter: {
-    url: 'https://api.puter.com/puterai/openai/v1',
-    keys: (process.env.PUTER_KEYS || '').split(',').filter(Boolean),
-    priority: 4,
-    isPuter: true,
-  },
   google: {
     url: 'https://generativelanguage.googleapis.com/v1beta/models',
     keys: (process.env.GOOGLE_KEYS || '').split(',').filter(Boolean),
-    priority: 5,
+    priority: 4,
   },
 };
 
-const KEY_INDEX = { groq: 0, nvidia: 0, openrouter: 0, puter: 0, google: 0 };
+const KEY_INDEX = { groq: 0, nvidia: 0, openrouter: 0, google: 0 };
 
 function getNextKey(provider) {
   const keys = PROVIDERS[provider]?.keys || [];
