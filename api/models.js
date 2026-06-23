@@ -42,14 +42,20 @@ const VERSION_MODELS = {
   4: V4_MODELS,
 };
 
+const { verifyApiKey } = require('../lib/api-keys');
+
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // Verify client ID
-  const clientId = req.headers['x-client-id'];
-  if (!clientId || !clientId.startsWith('dc-')) {
-    return res.status(401).json({ error: 'Missing or invalid client ID' });
+  // Verify API key
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey) {
+    return res.status(401).json({ error: 'Missing API key' });
+  }
+  const keyData = verifyApiKey(apiKey);
+  if (!keyData) {
+    return res.status(401).json({ error: 'Invalid API key' });
   }
 
   // Parse version from URL

@@ -1,15 +1,20 @@
 const { GATEWAY_SECRET, hmacSign } = require('../lib/security');
+const { verifyApiKey } = require('../lib/api-keys');
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Client-ID');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Api-Key');
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  // Verify client ID
-  const clientId = req.headers['x-client-id'];
-  if (!clientId || !clientId.startsWith('dc-')) {
-    return res.status(401).json({ error: 'Missing or invalid client ID' });
+  // Verify API key
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey) {
+    return res.status(401).json({ error: 'Missing API key' });
+  }
+  const keyData = verifyApiKey(apiKey);
+  if (!keyData) {
+    return res.status(401).json({ error: 'Invalid API key' });
   }
 
   if (!GATEWAY_SECRET) {
