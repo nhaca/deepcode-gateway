@@ -1,10 +1,6 @@
 const GATEWAY_KEY = process.env.GATEWAY_KEY || 'deepcode-gw-key-2024';
 
 const PROVIDERS = {
-  google: {
-    url: 'https://generativelanguage.googleapis.com/v1beta/models',
-    keys: (process.env.GOOGLE_KEYS || '').split(',').filter(Boolean),
-  },
   groq: {
     url: 'https://api.groq.com/openai/v1',
     keys: (process.env.GROQ_KEYS || '').split(',').filter(Boolean),
@@ -17,9 +13,13 @@ const PROVIDERS = {
     url: 'https://openrouter.ai/api/v1',
     keys: (process.env.OPENROUTER_KEYS || '').split(',').filter(Boolean),
   },
+  google: {
+    url: 'https://generativelanguage.googleapis.com/v1beta/models',
+    keys: (process.env.GOOGLE_KEYS || '').split(',').filter(Boolean),
+  },
 };
 
-const KEY_INDEX = { google: 0, groq: 0, nvidia: 0, openrouter: 0 };
+const KEY_INDEX = { groq: 0, nvidia: 0, openrouter: 0, google: 0 };
 
 function getNextKey(provider) {
   const keys = PROVIDERS[provider]?.keys || [];
@@ -74,31 +74,25 @@ export default async function handler(req) {
       const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
 
       if (response.ok) {
-        // Streaming response
+        // Streaming - pass through directly
         if (stream && provider !== 'google') {
-          return new Response(response.body, {
-            headers: {
-              'Content-Type': 'text/event-stream',
-              'Cache-Control': 'no-cache',
-              'Connection': 'keep-alive',
-              'Access-Control-Allow-Origin': '*',
-            },
-          });
+          const headers = new Headers();
+          headers.set('Content-Type', 'text/event-stream');
+          headers.set('Cache-Control', 'no-cache');
+          headers.set('Connection', 'keep-alive');
+          headers.set('Access-Control-Allow-Origin', '*');
+          return new Response(response.body, { headers });
         }
 
-        // Non-streaming response
+        // Non-streaming
         const data = await response.json();
 
         if (provider === 'google') {
           const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-          return new Response(JSON.stringify({ choices: [{ message: { content } }] }), {
-            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-          });
+          return Response.json({ choices: [{ message: { content } }] });
         }
 
-        return new Response(JSON.stringify(data), {
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-        });
+        return Response.json(data);
       }
 
       lastError = `${provider}: ${response.status}`;
@@ -107,8 +101,5 @@ export default async function handler(req) {
     }
   }
 
-  return new Response(JSON.stringify({ error: lastError || 'All providers failed' }), {
-    status: 500,
-    headers: { 'Content-Type': 'application/json' },
-  });
+  return Response.json({ error: lastError || 'All providers failed' }, { status: 500 });
 }
