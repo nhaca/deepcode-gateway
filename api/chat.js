@@ -1,6 +1,6 @@
+const { verifySignature, getDeviceFingerprint, verifyDevice, checkRateLimit, MAX_AGE_MS } = require('../lib/security');
+
 const GATEWAY_KEY = process.env.GATEWAY_KEY || 'deepcode-gw-key-2024';
-const GATEWAY_SECRET = process.env.GATEWAY_SECRET || 'dc-gw-secret-2024-secure';
-const MAX_AGE_MS = 30000;
 
 const PROVIDERS = {
   groq: {
@@ -31,40 +31,48 @@ function getNextKey(provider) {
   return key;
 }
 
-async function hmacSign(secret, message) {
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
-  return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-async function verifySignature(signature, timestamp, bodyStr) {
-  const age = Date.now() - parseInt(timestamp);
-  if (isNaN(age) || age < 0 || age > MAX_AGE_MS) return false;
-
-  const message = `${timestamp}:${bodyStr}`;
-  const expected = await hmacSign(GATEWAY_SECRET, message);
-  return signature === expected;
-}
-
 export const config = { runtime: 'edge' };
 
 export default async function handler(req) {
+  // CORS
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Timestamp, X-Signature' } });
+    return new Response(null, { 
+      headers: { 
+        'Access-Control-Allow-Origin': '*', 
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Timestamp, X-Signature, X-Device-ID, X-Platform, X-Version' 
+      } 
+    });
   }
 
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405 });
   }
 
-  // Verify API key
+  // ========== LAYER 1: API Key ==========
   const auth = req.headers.get('authorization');
   if (!auth || auth !== `Bearer ${GATEWAY_KEY}`) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
   }
 
-  // Verify signature
+  // ========== LAYER 2: Device Check ==========
+  const deviceId = req.headers.get('x-device-id');
+  const platform = req.headers.get('x-platform');
+  const version = req.headers.get('x-version');
+  
+  if (!deviceId || !platform || !version) {
+    return new Response(JSON.stringify({ error: 'Missing device info' }), { status: 401 });
+  }
+
+  if (!verifyDevice(deviceId)) {
+    return new Response(JSON.stringify({ error: 'Device not registered' }), { status: 403 });
+  }
+
+  // ========== LAYER 3: Rate Limit ==========
+  if (!checkRateLimit(deviceId, 50, 60000)) {
+    return new Response(JSON.stringify({ error: 'Rate limit exceeded' }), { status: 429 });
+  }
+
+  // ========== LAYER 4: Signature ==========
   const timestamp = req.headers.get('x-timestamp');
   const signature = req.headers.get('x-signature');
   const bodyStr = await req.text();
@@ -73,13 +81,30 @@ export default async function handler(req) {
     return new Response(JSON.stringify({ error: 'Missing signature' }), { status: 401 });
   }
 
-  const valid = await verifySignature(signature, timestamp, bodyStr);
+  const valid = await verifySignature(signature, timestamp, bodyStr, deviceId);
   if (!valid) {
-    return new Response(JSON.stringify({ error: 'Invalid signature' }), { status: 401 });
+    return new Response(JSON.stringify({ error: 'Invalid signature or expired' }), { status: 401 });
   }
 
-  const { model, messages, stream } = JSON.parse(bodyStr);
+  // ========== LAYER 5: Request Validation ==========
+  let body;
+  try {
+    body = JSON.parse(bodyStr);
+  } catch {
+    return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400 });
+  }
 
+  const { model, messages, stream } = body;
+  if (!messages || !Array.isArray(messages) || messages.length === 0) {
+    return new Response(JSON.stringify({ error: 'Messages required' }), { status: 400 });
+  }
+
+  // Limit message size
+  if (bodyStr.length > 100000) {
+    return new Response(JSON.stringify({ error: 'Request too large' }), { status: 413 });
+  }
+
+  // ========== ROUTE TO PROVIDER ==========
   const providerList = Object.keys(PROVIDERS).filter(p => PROVIDERS[p].keys.length > 0);
   let lastError;
 
@@ -100,11 +125,11 @@ export default async function handler(req) {
         headers['Authorization'] = `Bearer ${key}`;
       }
 
-      const body = provider === 'google'
+      const providerBody = provider === 'google'
         ? { contents: [{ parts: [{ text: messages.map(m => m.content).join('\n') }] }] }
         : { model: apiModel, messages, stream: !!stream };
 
-      const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+      const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(providerBody) });
 
       if (response.ok) {
         // Streaming
