@@ -31,7 +31,7 @@ module.exports = async (req, res) => {
     }
 
     const tier = req.body?.tier || 'free';
-    const keyData = generateApiKey(email, tier);
+    const keyData = await generateApiKey(email, tier);
     
     return res.json({
       success: true,
@@ -47,7 +47,7 @@ module.exports = async (req, res) => {
     if (!email) {
       return res.status(400).json({ error: 'Email required' });
     }
-    const keys = listApiKeys(email);
+    const keys = await listApiKeys(email);
     return res.json({ keys });
   }
 
@@ -57,7 +57,7 @@ module.exports = async (req, res) => {
     if (!apiKey) {
       return res.status(400).json({ error: 'API key required' });
     }
-    const revoked = revokeApiKey(apiKey);
+    const revoked = await revokeApiKey(apiKey);
     return res.json({ success: revoked });
   }
 
