@@ -5,6 +5,8 @@
     { "src": "/v2/(.*)", "dest": "/api/chat.js" },
     { "src": "/v3/(.*)", "dest": "/api/chat.js" },
     { "src": "/v4/(.*)", "dest": "/api/chat.js" },
-    { "src": "/bind-device", "dest": "/api/bind-device.js" }
+    { "src": "/bind-device", "dest": "/api/bind-device.js" },
+    { "src": "/security/stats", "dest": "/api/chat.js" },
+    { "src": "/security/audit", "dest": "/api/chat.js" }
   ]
 }

@@ -1,4 +1,4 @@
-const { GATEWAY_KEY, hmacSign, verifyBindingSignature } = require('../lib/security');
+const { GATEWAY_KEY, GATEWAY_SECRET, hmacSign, verifyBindingSignature } = require('../lib/security');
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -12,6 +12,10 @@ module.exports = async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
+  if (!GATEWAY_SECRET) {
+    return res.status(500).json({ error: 'Server misconfigured' });
+  }
+
   const { deviceId, email, provider, ip, bindingTimestamp } = req.body;
   if (!deviceId || !email) {
     return res.status(400).json({ error: 'deviceId and email required' });
@@ -20,7 +24,7 @@ module.exports = async (req, res) => {
   // Generate binding signature (stateless - IDE stores locally)
   const timestamp = bindingTimestamp || Date.now().toString();
   const message = `${deviceId}:${email}:${provider || ''}:${ip || ''}:${timestamp}`;
-  const bindingSignature = hmacSign(process.env.GATEWAY_SECRET || 'dc-gw-secret-2024-secure', message);
+  const bindingSignature = hmacSign(GATEWAY_SECRET, message);
 
   return res.json({
     success: true,

@@ -4,6 +4,8 @@ const {
   verifyDeviceBinding,
   getClientIp,
   GATEWAY_KEY,
+  getAuditLog,
+  getSecurityStats,
 } = require('../lib/security');
 
 // ===== Provider Config =====
@@ -361,11 +363,35 @@ async function handleChat(req, res, version, specificModel) {
 // ===== Export =====
 module.exports = async function handler(req, res) {
   if (handleCors(res, req)) return;
+
+  const url = new URL(req.url, 'http://localhost');
+  const pathParts = url.pathname.split('/').filter(Boolean);
+
+  // ===== Security Admin Endpoints (GET, require admin key) =====
+  if (req.method === 'GET') {
+    const adminKey = req.headers['x-admin-key'] || url.searchParams.get('key');
+
+    // GET /security/stats
+    if (pathParts.includes('stats')) {
+      if (adminKey !== GATEWAY_KEY) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      return res.json(getSecurityStats());
+    }
+
+    // GET /security/audit
+    if (pathParts.includes('audit')) {
+      if (adminKey !== GATEWAY_KEY) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      const limit = parseInt(url.searchParams.get('limit')) || 100;
+      return res.json({ entries: getAuditLog(limit) });
+    }
+  }
+
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   // Parse URL to determine version and optional model
-  const url = new URL(req.url, 'http://localhost');
-  const pathParts = url.pathname.split('/').filter(Boolean);
   // pathParts: ['v1', 'chat', 'completions'] or ['v4', 'chat', 'completions', 'claude-opus-4-8']
 
   let version = 1;
