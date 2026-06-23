@@ -30,6 +30,8 @@ const V4_MODELS = [
   { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', tier: 'pro' },
   { id: 'llama-4-maverick', name: 'Llama 4 Maverick', tier: 'pro' },
   { id: 'qwen-3-235b', name: 'Qwen 3 235B', tier: 'pro' },
+  { id: 'kira-3.5-flash', name: 'Kira 3.5 Flash', tier: 'pro' },
+  { id: 'kira-2.5-pro', name: 'Kira 2.5 Pro', tier: 'pro' },
   { id: 'auto', name: 'Auto', tier: 'free' },
 ];
 

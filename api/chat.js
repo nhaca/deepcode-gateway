@@ -23,14 +23,19 @@ const PROVIDERS = {
     keys: (process.env.OPENROUTER_KEYS || '').split(',').filter(Boolean),
     priority: 3,
   },
+  kira: {
+    url: 'https://kiraai.vn/api/v1',
+    keys: (process.env.KIRA_KEYS || '').split(',').filter(Boolean),
+    priority: 4,
+  },
   google: {
     url: 'https://generativelanguage.googleapis.com/v1beta/models',
     keys: (process.env.GOOGLE_KEYS || '').split(',').filter(Boolean),
-    priority: 4,
+    priority: 5,
   },
 };
 
-const KEY_INDEX = { groq: 0, nvidia: 0, openrouter: 0, google: 0 };
+const KEY_INDEX = { groq: 0, nvidia: 0, openrouter: 0, kira: 0, google: 0 };
 
 function getNextKey(provider) {
   const keys = PROVIDERS[provider]?.keys || [];
@@ -59,6 +64,8 @@ const V4_MODELS = {
   'gemini-2.5-flash': { provider: 'google', model: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
   'llama-4-maverick': { provider: 'openrouter', model: 'meta-llama/llama-4-maverick', name: 'Llama 4 Maverick' },
   'qwen-3-235b': { provider: 'openrouter', model: 'qwen/qwen3-235b-a22b', name: 'Qwen 3 235B' },
+  'kira-3.5-flash': { provider: 'kira', model: 'kira-3.5-flash', name: 'Kira 3.5 Flash' },
+  'kira-2.5-pro': { provider: 'kira', model: 'kira-2.5-pro', name: 'Kira 2.5 Pro' },
 };
 
 // v4 tier restrictions
@@ -72,6 +79,8 @@ const V4_TIER_RESTRICTED = {
   'gemini-2.5-flash': ['pro', 'premium', 'business'],
   'llama-4-maverick': ['pro', 'premium', 'business'],
   'qwen-3-235b': ['pro', 'premium', 'business'],
+  'kira-3.5-flash': ['pro', 'premium', 'business'],
+  'kira-2.5-pro': ['pro', 'premium', 'business'],
 };
 
 // ===== CORS Handler =====
