@@ -29,21 +29,23 @@ function getNextKey(provider) {
   return key;
 }
 
-export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  if (req.method === 'OPTIONS') return res.status(200).end();
+export const config = { runtime: 'edge' };
+
+export default async function handler(req) {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type, Authorization' } });
+  }
 
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405 });
   }
 
-  const auth = req.headers.authorization;
+  const auth = req.headers.get('authorization');
   if (!auth || auth !== `Bearer ${GATEWAY_KEY}`) {
-    return res.status(401).json({ error: 'Unauthorized' });
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
   }
 
-  const { model, messages, stream } = req.body;
+  const { model, messages, stream } = await req.json();
 
   const providerList = Object.keys(PROVIDERS).filter(p => PROVIDERS[p].keys.length > 0);
   let lastError;
@@ -72,27 +74,16 @@ export default async function handler(req, res) {
       const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
 
       if (response.ok) {
-        // Streaming response - pipe directly
+        // Streaming response
         if (stream && provider !== 'google') {
-          res.setHeader('Content-Type', 'text/event-stream');
-          res.setHeader('Cache-Control', 'no-cache');
-          res.setHeader('Connection', 'keep-alive');
-
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-
-          try {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              const chunk = decoder.decode(value, { stream: true });
-              res.write(chunk);
-            }
-          } catch (e) {
-            // Stream interrupted
-          }
-          res.end();
-          return;
+          return new Response(response.body, {
+            headers: {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              'Connection': 'keep-alive',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
         }
 
         // Non-streaming response
@@ -100,10 +91,14 @@ export default async function handler(req, res) {
 
         if (provider === 'google') {
           const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-          return res.json({ choices: [{ message: { content } }] });
+          return new Response(JSON.stringify({ choices: [{ message: { content } }] }), {
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+          });
         }
 
-        return res.json(data);
+        return new Response(JSON.stringify(data), {
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+        });
       }
 
       lastError = `${provider}: ${response.status}`;
@@ -112,5 +107,8 @@ export default async function handler(req, res) {
     }
   }
 
-  return res.status(500).json({ error: lastError || 'All providers failed' });
+  return new Response(JSON.stringify({ error: lastError || 'All providers failed' }), {
+    status: 500,
+    headers: { 'Content-Type': 'application/json' },
+  });
 }
