@@ -367,13 +367,13 @@ module.exports = async function handler(req, res) {
   const url = new URL(req.url, 'http://localhost');
   const pathParts = url.pathname.split('/').filter(Boolean);
 
-  // ===== Security Admin Endpoints (GET, require admin key) =====
+  // ===== Security Admin Endpoints (GET, require admin secret) =====
   if (req.method === 'GET') {
-    const adminKey = req.headers['x-admin-key'] || url.searchParams.get('key');
+    const adminSecret = req.headers['x-admin-secret'] || url.searchParams.get('secret');
 
     // GET /security/stats
     if (pathParts.includes('stats')) {
-      if (adminKey !== GATEWAY_KEY) {
+      if (!adminSecret || adminSecret !== process.env.GATEWAY_SECRET) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
       return res.json(getSecurityStats());
@@ -381,7 +381,7 @@ module.exports = async function handler(req, res) {
 
     // GET /security/audit
     if (pathParts.includes('audit')) {
-      if (adminKey !== GATEWAY_KEY) {
+      if (!adminSecret || adminSecret !== process.env.GATEWAY_SECRET) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
       const limit = parseInt(url.searchParams.get('limit')) || 100;

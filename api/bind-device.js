@@ -1,15 +1,15 @@
-const { GATEWAY_KEY, GATEWAY_SECRET, hmacSign, verifyBindingSignature } = require('../lib/security');
+const { GATEWAY_SECRET, hmacSign } = require('../lib/security');
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Binding-Signature, X-Binding-Timestamp');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Client-ID');
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  // Verify gateway key
-  const auth = req.headers.authorization;
-  if (!auth || auth !== `Bearer ${GATEWAY_KEY}`) {
-    return res.status(401).json({ error: 'Unauthorized' });
+  // Verify client ID
+  const clientId = req.headers['x-client-id'];
+  if (!clientId || !clientId.startsWith('dc-')) {
+    return res.status(401).json({ error: 'Missing or invalid client ID' });
   }
 
   if (!GATEWAY_SECRET) {

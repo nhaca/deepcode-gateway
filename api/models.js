@@ -46,9 +46,10 @@ module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const auth = req.headers.authorization;
-  if (!auth || auth !== `Bearer ${GATEWAY_KEY}`) {
-    return res.status(401).json({ error: 'Unauthorized' });
+  // Verify client ID
+  const clientId = req.headers['x-client-id'];
+  if (!clientId || !clientId.startsWith('dc-')) {
+    return res.status(401).json({ error: 'Missing or invalid client ID' });
   }
 
   // Parse version from URL
