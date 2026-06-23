@@ -94,9 +94,22 @@ function handleCors(res, req) {
 }
 
 // ===== Provider Call =====
+const LAST_CALL_TIME = { kira: 0 };
+const KIRA_MIN_DELAY_MS = 1000; // 1 second between Kira calls
+
 async function callProvider(providerName, model, messages, stream, extraHeaders = {}) {
   const provider = PROVIDERS[providerName];
   if (!provider) throw new Error(`Unknown provider: ${providerName}`);
+
+  // Rate limit protection for Kira
+  if (providerName === 'kira') {
+    const now = Date.now();
+    const elapsed = now - LAST_CALL_TIME.kira;
+    if (elapsed < KIRA_MIN_DELAY_MS) {
+      await new Promise(r => setTimeout(r, KIRA_MIN_DELAY_MS - elapsed));
+    }
+    LAST_CALL_TIME.kira = Date.now();
+  }
 
   const key = getNextKey(providerName);
   if (!key) throw new Error(`No keys for provider: ${providerName}`);
@@ -134,6 +147,23 @@ async function callProvider(providerName, model, messages, stream, extraHeaders 
 }
 
 // ===== Auto Route (try providers in order) =====
+async function callProviderWithRetry(providerName, model, messages, stream, extraHeaders = {}, maxRetries = 2) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await callProvider(providerName, model, messages, stream, extraHeaders);
+    } catch (e) {
+      const is429 = e.message.includes('429');
+      if (is429 && attempt < maxRetries) {
+        // Wait longer on 429: 2s, 4s, 8s...
+        const delay = Math.pow(2, attempt + 1) * 1000;
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+
 async function autoRoute(model, messages, stream) {
   const providerList = Object.keys(PROVIDERS)
     .filter(p => PROVIDERS[p].keys.length > 0)
@@ -142,7 +172,7 @@ async function autoRoute(model, messages, stream) {
   let lastError;
   for (const provider of providerList) {
     try {
-      const result = await callProvider(provider, model, messages, stream);
+      const result = await callProviderWithRetry(provider, model, messages, stream);
       return result;
     } catch (e) {
       lastError = e.message;
