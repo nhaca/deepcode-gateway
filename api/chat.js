@@ -1,6 +1,8 @@
-const { verifySignature, getDeviceFingerprint, verifyDevice, checkRateLimit, MAX_AGE_MS } = require('../lib/security');
+const crypto = require('crypto');
 
 const GATEWAY_KEY = process.env.GATEWAY_KEY || 'deepcode-gw-key-2024';
+const GATEWAY_SECRET = process.env.GATEWAY_SECRET || 'dc-gw-secret-2024-secure';
+const MAX_AGE_MS = 15000;
 
 const PROVIDERS = {
   groq: {
@@ -31,80 +33,68 @@ function getNextKey(provider) {
   return key;
 }
 
-export const config = { runtime: 'edge' };
+const ALLOWED_DEVICES = new Set(['deepcode-ide-v1']);
+const rateLimits = new Map();
 
-export default async function handler(req) {
-  // CORS
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { 
-      headers: { 
-        'Access-Control-Allow-Origin': '*', 
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Timestamp, X-Signature, X-Device-ID, X-Platform, X-Version' 
-      } 
-    });
+function verifySignature(signature, timestamp, bodyStr, deviceId) {
+  const age = Date.now() - parseInt(timestamp);
+  if (isNaN(age) || age < 0 || age > MAX_AGE_MS) return false;
+  if (!ALLOWED_DEVICES.has(deviceId)) return false;
+
+  const message = `${timestamp}:${deviceId}:${bodyStr}`;
+  const expected = crypto.createHmac('sha256', GATEWAY_SECRET).update(message).digest('hex');
+  return signature === expected;
+}
+
+function checkRateLimit(deviceId, max = 50, windowMs = 60000) {
+  const now = Date.now();
+  const r = rateLimits.get(deviceId) || { count: 0, resetAt: now + windowMs };
+  if (now > r.resetAt) { r.count = 0; r.resetAt = now + windowMs; }
+  r.count++;
+  rateLimits.set(deviceId, r);
+  return r.count <= max;
+}
+
+module.exports = async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Timestamp, X-Signature, X-Device-ID, X-Platform, X-Version');
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  // Layer 1: API Key
+  const auth = req.headers.authorization;
+  if (!auth || auth !== `Bearer ${GATEWAY_KEY}`) return res.status(401).json({ error: 'Unauthorized' });
+
+  // Layer 2: Device
+  const deviceId = req.headers['x-device-id'];
+  const platform = req.headers['x-platform'];
+  const version = req.headers['x-version'];
+  if (!deviceId || !platform || !version) return res.status(401).json({ error: 'Missing device info' });
+  if (!ALLOWED_DEVICES.has(deviceId)) return res.status(403).json({ error: 'Device not registered' });
+
+  // Layer 3: Rate limit
+  if (!checkRateLimit(deviceId)) return res.status(429).json({ error: 'Rate limit exceeded' });
+
+  // Layer 4: Signature
+  const timestamp = req.headers['x-timestamp'];
+  const signature = req.headers['x-signature'];
+  if (!timestamp || !signature) return res.status(401).json({ error: 'Missing signature' });
+
+  let bodyStr;
+  try { bodyStr = JSON.stringify(req.body); } catch { return res.status(400).json({ error: 'Invalid body' }); }
+
+  if (!verifySignature(signature, timestamp, bodyStr, deviceId)) {
+    return res.status(401).json({ error: 'Invalid signature' });
   }
 
-  if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405 });
-  }
-
-  // ========== LAYER 1: API Key ==========
-  const auth = req.headers.get('authorization');
-  if (!auth || auth !== `Bearer ${GATEWAY_KEY}`) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
-  }
-
-  // ========== LAYER 2: Device Check ==========
-  const deviceId = req.headers.get('x-device-id');
-  const platform = req.headers.get('x-platform');
-  const version = req.headers.get('x-version');
-  
-  if (!deviceId || !platform || !version) {
-    return new Response(JSON.stringify({ error: 'Missing device info' }), { status: 401 });
-  }
-
-  if (!verifyDevice(deviceId)) {
-    return new Response(JSON.stringify({ error: 'Device not registered' }), { status: 403 });
-  }
-
-  // ========== LAYER 3: Rate Limit ==========
-  if (!checkRateLimit(deviceId, 50, 60000)) {
-    return new Response(JSON.stringify({ error: 'Rate limit exceeded' }), { status: 429 });
-  }
-
-  // ========== LAYER 4: Signature ==========
-  const timestamp = req.headers.get('x-timestamp');
-  const signature = req.headers.get('x-signature');
-  const bodyStr = await req.text();
-
-  if (!timestamp || !signature) {
-    return new Response(JSON.stringify({ error: 'Missing signature' }), { status: 401 });
-  }
-
-  const valid = await verifySignature(signature, timestamp, bodyStr, deviceId);
-  if (!valid) {
-    return new Response(JSON.stringify({ error: 'Invalid signature or expired' }), { status: 401 });
-  }
-
-  // ========== LAYER 5: Request Validation ==========
-  let body;
-  try {
-    body = JSON.parse(bodyStr);
-  } catch {
-    return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400 });
-  }
-
-  const { model, messages, stream } = body;
+  // Layer 5: Validation
+  const { model, messages, stream } = req.body;
   if (!messages || !Array.isArray(messages) || messages.length === 0) {
-    return new Response(JSON.stringify({ error: 'Messages required' }), { status: 400 });
+    return res.status(400).json({ error: 'Messages required' });
   }
+  if (bodyStr.length > 100000) return res.status(413).json({ error: 'Request too large' });
 
-  // Limit message size
-  if (bodyStr.length > 100000) {
-    return new Response(JSON.stringify({ error: 'Request too large' }), { status: 413 });
-  }
-
-  // ========== ROUTE TO PROVIDER ==========
+  // Route to provider
   const providerList = Object.keys(PROVIDERS).filter(p => PROVIDERS[p].keys.length > 0);
   let lastError;
 
@@ -121,9 +111,7 @@ export default async function handler(req) {
         : `${baseUrl}/chat/completions`;
 
       const headers = { 'Content-Type': 'application/json' };
-      if (provider !== 'google') {
-        headers['Authorization'] = `Bearer ${key}`;
-      }
+      if (provider !== 'google') headers['Authorization'] = `Bearer ${key}`;
 
       const providerBody = provider === 'google'
         ? { contents: [{ parts: [{ text: messages.map(m => m.content).join('\n') }] }] }
@@ -132,25 +120,28 @@ export default async function handler(req) {
       const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(providerBody) });
 
       if (response.ok) {
-        // Streaming
         if (stream && provider !== 'google') {
-          const headers = new Headers();
-          headers.set('Content-Type', 'text/event-stream');
-          headers.set('Cache-Control', 'no-cache');
-          headers.set('Connection', 'keep-alive');
-          headers.set('Access-Control-Allow-Origin', '*');
-          return new Response(response.body, { headers });
+          res.setHeader('Content-Type', 'text/event-stream');
+          res.setHeader('Cache-Control', 'no-cache');
+          res.setHeader('Connection', 'keep-alive');
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              res.write(decoder.decode(value, { stream: true }));
+            }
+          } catch {}
+          return res.end();
         }
 
-        // Non-streaming
         const data = await response.json();
-
         if (provider === 'google') {
           const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-          return Response.json({ choices: [{ message: { content } }] });
+          return res.json({ choices: [{ message: { content } }] });
         }
-
-        return Response.json(data);
+        return res.json(data);
       }
 
       lastError = `${provider}: ${response.status}`;
@@ -159,5 +150,6 @@ export default async function handler(req) {
     }
   }
 
-  return Response.json({ error: lastError || 'All providers failed' }, { status: 500 });
-}
+  return res.status(500).json({ error: lastError || 'All providers failed' });
+};
+
