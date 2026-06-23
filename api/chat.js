@@ -1,4 +1,6 @@
 const GATEWAY_KEY = process.env.GATEWAY_KEY || 'deepcode-gw-key-2024';
+const GATEWAY_SECRET = process.env.GATEWAY_SECRET || 'dc-gw-secret-2024-secure';
+const MAX_AGE_MS = 30000;
 
 const PROVIDERS = {
   groq: {
@@ -29,23 +31,54 @@ function getNextKey(provider) {
   return key;
 }
 
+async function hmacSign(secret, message) {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
+  return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function verifySignature(signature, timestamp, bodyStr) {
+  const age = Date.now() - parseInt(timestamp);
+  if (isNaN(age) || age < 0 || age > MAX_AGE_MS) return false;
+
+  const message = `${timestamp}:${bodyStr}`;
+  const expected = await hmacSign(GATEWAY_SECRET, message);
+  return signature === expected;
+}
+
 export const config = { runtime: 'edge' };
 
 export default async function handler(req) {
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type, Authorization' } });
+    return new Response(null, { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Timestamp, X-Signature' } });
   }
 
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405 });
   }
 
+  // Verify API key
   const auth = req.headers.get('authorization');
   if (!auth || auth !== `Bearer ${GATEWAY_KEY}`) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
   }
 
-  const { model, messages, stream } = await req.json();
+  // Verify signature
+  const timestamp = req.headers.get('x-timestamp');
+  const signature = req.headers.get('x-signature');
+  const bodyStr = await req.text();
+
+  if (!timestamp || !signature) {
+    return new Response(JSON.stringify({ error: 'Missing signature' }), { status: 401 });
+  }
+
+  const valid = await verifySignature(signature, timestamp, bodyStr);
+  if (!valid) {
+    return new Response(JSON.stringify({ error: 'Invalid signature' }), { status: 401 });
+  }
+
+  const { model, messages, stream } = JSON.parse(bodyStr);
 
   const providerList = Object.keys(PROVIDERS).filter(p => PROVIDERS[p].keys.length > 0);
   let lastError;
@@ -74,7 +107,7 @@ export default async function handler(req) {
       const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
 
       if (response.ok) {
-        // Streaming - pass through directly
+        // Streaming
         if (stream && provider !== 'google') {
           const headers = new Headers();
           headers.set('Content-Type', 'text/event-stream');
