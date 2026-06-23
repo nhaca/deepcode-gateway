@@ -72,6 +72,30 @@ export default async function handler(req, res) {
       const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
 
       if (response.ok) {
+        // Streaming response - pipe directly
+        if (stream && provider !== 'google') {
+          res.setHeader('Content-Type', 'text/event-stream');
+          res.setHeader('Cache-Control', 'no-cache');
+          res.setHeader('Connection', 'keep-alive');
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              const chunk = decoder.decode(value, { stream: true });
+              res.write(chunk);
+            }
+          } catch (e) {
+            // Stream interrupted
+          }
+          res.end();
+          return;
+        }
+
+        // Non-streaming response
         const data = await response.json();
 
         if (provider === 'google') {
