@@ -5,38 +5,37 @@ const GATEWAY_KEY = 'deepcode-gw-key-2024';
 const GATEWAY_SECRET = 'dc-gw-secret-2024-secure';
 const DEVICE_ID = 'deepcode-ide-v1';
 const TEST_EMAIL = 'test@example.com';
-const TEST_IP = '192.168.1.100';
+
+function canonicalJson(obj) {
+  if (obj === null || obj === undefined) return 'null';
+  if (typeof obj === 'string') return JSON.stringify(obj);
+  if (typeof obj === 'number' || typeof obj === 'boolean') return String(obj);
+  if (Array.isArray(obj)) return '[' + obj.map(canonicalJson).join(',') + ']';
+  const keys = Object.keys(obj).sort();
+  return '{' + keys.map(k => JSON.stringify(k) + ':' + canonicalJson(obj[k])).join(',') + '}';
+}
 
 function sign(body) {
   const timestamp = Date.now().toString();
-  const message = `${timestamp}:${DEVICE_ID}:${body}`;
+  const bodyStr = typeof body === 'string' ? body : canonicalJson(body);
+  const message = `${timestamp}:${DEVICE_ID}:${bodyStr}`;
   const hmac = crypto.createHmac('sha256', GATEWAY_SECRET).update(message).digest('hex');
   return { timestamp, signature: hmac };
 }
 
-function headers(timestamp, signature, tier = 'free', extra = {}) {
-  return {
-    'Authorization': `Bearer ${GATEWAY_KEY}`,
-    'Content-Type': 'application/json',
-    'X-Timestamp': timestamp,
-    'X-Signature': signature,
-    'X-Device-ID': DEVICE_ID,
-    'X-Platform': 'win32',
-    'X-Version': '1.0.0',
-    'X-User-Email': TEST_EMAIL,
-    'X-User-Provider': 'google',
-    'X-User-Tier': tier,
-    ...extra,
-  };
+function bindingSignature(email, provider, ip, timestamp) {
+  const message = `${DEVICE_ID}:${email}:${provider}:${ip}:${timestamp}`;
+  return crypto.createHmac('sha256', GATEWAY_SECRET).update(message).digest('hex');
 }
 
 function req(path, body, hdrs) {
   return new Promise((resolve, reject) => {
     const data = JSON.stringify(body);
-    const r = https.request({ hostname: 'deepcode-gateway.vercel.app', path, method: 'POST', headers: hdrs }, res => {
+    const h = { ...hdrs, 'Content-Length': Buffer.byteLength(data) };
+    const r = https.request({ hostname: 'deepcode-gateway.vercel.app', path, method: 'POST', headers: h }, res => {
       let d = '';
       res.on('data', c => { d += c; });
-      res.on('end', () => resolve({ status: res.statusCode, body: d.substring(0, 200) }));
+      res.on('end', () => resolve({ status: res.statusCode, body: d.substring(0, 300) }));
     });
     r.on('error', reject);
     r.write(data);
@@ -44,59 +43,86 @@ function req(path, body, hdrs) {
   });
 }
 
+function getPublicIP() {
+  return new Promise((resolve) => {
+    https.get('https://api.ipify.org?format=json', res => {
+      let d = '';
+      res.on('data', c => { d += c; });
+      res.on('end', () => { try { resolve(JSON.parse(d).ip); } catch { resolve('unknown'); } });
+    }).on('error', () => resolve('unknown'));
+  });
+}
+
 async function test() {
-  // 1. Bind device
-  console.log('=== 1. Bind Device ===');
-  const bindBody = JSON.stringify({ action: 'bind', deviceId: DEVICE_ID, email: TEST_EMAIL, provider: 'google', ip: TEST_IP });
-  const { timestamp: t1, signature: s1 } = sign(bindBody);
-  const bindRes = await req('/bind-device', JSON.parse(bindBody), headers(t1, s1));
-  console.log(`  Status: ${bindRes.status}, Body: ${bindRes.body}`);
+  const realIp = await getPublicIP();
+  console.log('Real IP:', realIp);
 
-  // 2. v1 (DeepCode Go) - free tier
-  console.log('\n=== 2. v1 DeepCode Go (free) ===');
-  const v1Body = JSON.stringify({ model: 'auto', messages: [{ role: 'user', content: 'say hi in 5 words' }], max_tokens: 20 });
-  const { timestamp: t2, signature: s2 } = sign(v1Body);
-  const v1Res = await req('/v1/chat/completions', JSON.parse(v1Body), headers(t2, s2, 'free'));
-  console.log(`  Status: ${v1Res.status}, Body: ${v1Res.body}`);
+  const bindingTs = Date.now().toString();
+  const bindSig = bindingSignature(TEST_EMAIL, 'google', realIp, bindingTs);
 
-  // 3. v2 (DeepCode Pro) - free tier → should fail
-  console.log('\n=== 3. v2 DeepCode Pro (free tier → should fail) ===');
-  const v2Body = JSON.stringify({ model: 'z-ai/glm-4.7-flash-free', messages: [{ role: 'user', content: 'hi' }], max_tokens: 10 });
-  const { timestamp: t3, signature: s3 } = sign(v2Body);
-  const v2ResFree = await req('/v2/chat/completions', JSON.parse(v2Body), headers(t3, s3, 'free'));
-  console.log(`  Status: ${v2ResFree.status}, Body: ${v2ResFree.body}`);
+  function headers(tier = 'free', extra = {}) {
+    return {
+      'Authorization': `Bearer ${GATEWAY_KEY}`,
+      'Content-Type': 'application/json',
+      'X-Device-ID': DEVICE_ID,
+      'X-Platform': 'win32',
+      'X-Version': '1.0.0',
+      'X-User-Email': TEST_EMAIL,
+      'X-User-Provider': 'google',
+      'X-User-Tier': tier,
+      'X-Binding-Signature': bindSig,
+      'X-Binding-Timestamp': bindingTs,
+      'X-Login-IP': realIp,
+      ...extra,
+    };
+  }
 
-  // 4. v2 (DeepCode Pro) - pro tier
-  console.log('\n=== 4. v2 DeepCode Pro (pro tier) ===');
-  const { timestamp: t4, signature: s4 } = sign(v2Body);
-  const v2ResPro = await req('/v2/chat/completions', JSON.parse(v2Body), headers(t4, s4, 'pro'));
-  console.log(`  Status: ${v2ResPro.status}, Body: ${v2ResPro.body}`);
+  // 1. v1 DeepCode Go (free)
+  console.log('\n=== 1. v1 DeepCode Go (free) ===');
+  const v1Body = { model: 'auto', messages: [{ role: 'user', content: 'say hi in 3 words' }], max_tokens: 20 };
+  const { timestamp: t1, signature: s1 } = sign(JSON.stringify(v1Body));
+  const v1 = await req('/v1/chat/completions', v1Body, { ...headers('free'), 'X-Timestamp': t1, 'X-Signature': s1 });
+  console.log(`  ${v1.status}: ${v1.body}`);
 
-  // 5. v4 (DeepCode Server 2) - free tier → should fail
-  console.log('\n=== 5. v4 DeepCode Server 2 (free tier → should fail) ===');
-  const v4Body = JSON.stringify({ model: 'auto', messages: [{ role: 'user', content: 'hi' }], max_tokens: 10 });
-  const { timestamp: t5, signature: s5 } = sign(v4Body);
-  const v4ResFree = await req('/v4/chat/completions', JSON.parse(v4Body), headers(t5, s5, 'free'));
-  console.log(`  Status: ${v4ResFree.status}, Body: ${v4ResFree.body}`);
+  // 2. v2 DeepCode Pro (free → should fail)
+  console.log('\n=== 2. v2 DeepCode Pro (free → 403) ===');
+  const v2Body = { model: 'z-ai/glm-4.7-flash-free', messages: [{ role: 'user', content: 'hi' }], max_tokens: 10 };
+  const { timestamp: t2, signature: s2 } = sign(JSON.stringify(v2Body));
+  const v2f = await req('/v2/chat/completions', v2Body, { ...headers('free'), 'X-Timestamp': t2, 'X-Signature': s2 });
+  console.log(`  ${v2f.status}: ${v2f.body}`);
 
-  // 6. v4 (DeepCode Server 2) - pro tier
-  console.log('\n=== 6. v4 DeepCode Server 2 (pro tier) ===');
-  const { timestamp: t6, signature: s6 } = sign(v4Body);
-  const v4ResPro = await req('/v4/chat/completions', JSON.parse(v4Body), headers(t6, s6, 'pro'));
-  console.log(`  Status: ${v4ResPro.status}, Body: ${v4ResPro.body}`);
+  // 3. v2 DeepCode Pro (pro)
+  console.log('\n=== 3. v2 DeepCode Pro (pro) ===');
+  const { timestamp: t3, signature: s3 } = sign(JSON.stringify(v2Body));
+  const v2p = await req('/v2/chat/completions', v2Body, { ...headers('pro'), 'X-Timestamp': t3, 'X-Signature': s3 });
+  console.log(`  ${v2p.status}: ${v2p.body}`);
 
-  // 7. v4 with specific model (claude-opus-4-8) - pro tier
-  console.log('\n=== 7. v4/claude-opus-4-8 (pro tier) ===');
-  const claudeBody = JSON.stringify({ messages: [{ role: 'user', content: 'hi' }], max_tokens: 10 });
-  const { timestamp: t7, signature: s7 } = sign(claudeBody);
-  const claudeRes = await req('/v4/chat/completions/claude-opus-4-8', JSON.parse(claudeBody), headers(t7, s7, 'pro'));
-  console.log(`  Status: ${claudeRes.status}, Body: ${claudeRes.body}`);
+  // 4. v3 DeepCode Ultra (pro)
+  console.log('\n=== 4. v3 DeepCode Ultra (pro) ===');
+  const v3Body = { model: 'z-ai/glm-5.1', messages: [{ role: 'user', content: 'hi' }], max_tokens: 10 };
+  const { timestamp: t4, signature: s4 } = sign(JSON.stringify(v3Body));
+  const v3 = await req('/v3/chat/completions', v3Body, { ...headers('pro'), 'X-Timestamp': t4, 'X-Signature': s4 });
+  console.log(`  ${v3.status}: ${v3.body}`);
 
-  // 8. Wrong IP → should fail
-  console.log('\n=== 8. Wrong IP (should fail) ===');
-  const { timestamp: t8, signature: s8 } = sign(v1Body);
-  const wrongIpRes = await req('/v1/chat/completions', JSON.parse(v1Body), { ...headers(t8, s8, 'free'), 'X-Forwarded-For': '10.0.0.1' });
-  console.log(`  Status: ${wrongIpRes.status}, Body: ${wrongIpRes.body}`);
+  // 5. v4 DeepCode Server 2 (pro)
+  console.log('\n=== 5. v4 DeepCode Server 2 (pro) ===');
+  const v4Body = { model: 'auto', messages: [{ role: 'user', content: 'hi' }], max_tokens: 10 };
+  const { timestamp: t5, signature: s5 } = sign(JSON.stringify(v4Body));
+  const v4 = await req('/v4/chat/completions', v4Body, { ...headers('pro'), 'X-Timestamp': t5, 'X-Signature': s5 });
+  console.log(`  ${v4.status}: ${v4.body}`);
+
+  // 6. v4/claude-opus-4-8 (pro)
+  console.log('\n=== 6. v4/claude-opus-4-8 (pro) ===');
+  const claudeBody = { messages: [{ role: 'user', content: 'hi' }], max_tokens: 10 };
+  const { timestamp: t6, signature: s6 } = sign(JSON.stringify(claudeBody));
+  const claude = await req('/v4/chat/completions/claude-opus-4-8', claudeBody, { ...headers('pro'), 'X-Timestamp': t6, 'X-Signature': s6 });
+  console.log(`  ${claude.status}: ${claude.body}`);
+
+  // 7. Wrong IP
+  console.log('\n=== 7. Wrong IP (should fail) ===');
+  const { timestamp: t7, signature: s7 } = sign(JSON.stringify(v1Body));
+  const wrongIp = await req('/v1/chat/completions', v1Body, { ...headers('free'), 'X-Timestamp': t7, 'X-Signature': s7, 'X-Forwarded-For': '10.0.0.1' });
+  console.log(`  ${wrongIp.status}: ${wrongIp.body}`);
 
   console.log('\n=== Done ===');
 }
