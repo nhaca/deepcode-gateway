@@ -78,7 +78,7 @@ const V4_TIER_RESTRICTED = {
 function handleCors(res, req) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers',
-    'Content-Type, Authorization, X-Timestamp, X-Signature, X-Device-ID, X-Platform, X-Version, X-User-Email, X-User-Provider, X-User-Tier, X-GitHub-Token'
+    'Content-Type, Authorization, X-Timestamp, X-Signature, X-Device-ID, X-Platform, X-Version, X-User-Email, X-User-Provider, X-User-Tier, X-GitHub-Token, X-Binding-Signature, X-Binding-Timestamp, X-Login-IP'
   );
   if (req.method === 'OPTIONS') { res.status(200).end(); return true; }
   return false;

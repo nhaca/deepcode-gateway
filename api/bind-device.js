@@ -1,8 +1,8 @@
-const { bindDevice, verifyDeviceBinding, getDeviceBinding, GATEWAY_KEY } = require('../lib/security');
+const { GATEWAY_KEY, hmacSign, verifyBindingSignature } = require('../lib/security');
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Binding-Signature, X-Binding-Timestamp');
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
@@ -12,25 +12,19 @@ module.exports = async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const { action, deviceId, email, provider, ip } = req.body;
+  const { deviceId, email, provider, ip, bindingTimestamp } = req.body;
   if (!deviceId || !email) {
     return res.status(400).json({ error: 'deviceId and email required' });
   }
 
-  if (action === 'bind') {
-    const result = bindDevice(deviceId, email, provider || 'unknown', ip || 'unknown');
-    return res.json(result);
-  }
+  // Generate binding signature (stateless - IDE stores locally)
+  const timestamp = bindingTimestamp || Date.now().toString();
+  const message = `${deviceId}:${email}:${provider || ''}:${ip || ''}:${timestamp}`;
+  const bindingSignature = hmacSign(process.env.GATEWAY_SECRET || 'dc-gw-secret-2024-secure', message);
 
-  if (action === 'verify') {
-    const result = verifyDeviceBinding(deviceId, email);
-    return res.json(result);
-  }
-
-  if (action === 'get') {
-    const binding = getDeviceBinding(deviceId);
-    return res.json({ binding });
-  }
-
-  return res.status(400).json({ error: 'Invalid action' });
+  return res.json({
+    success: true,
+    bindingSignature,
+    bindingTimestamp: timestamp,
+  });
 };
