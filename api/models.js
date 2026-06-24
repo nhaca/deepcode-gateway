@@ -2,10 +2,23 @@ const { GATEWAY_KEY } = require('../lib/security');
 
 const V1_MODELS = [
   { id: 'auto', name: 'Auto (Best Available)' },
-  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
-  { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B' },
-  { id: 'deepseek-ai/deepseek-v4-flash', name: 'DeepSeek V4' },
-  { id: 'z-ai/glm-5.1', name: 'GLM 5.1' },
+  { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B (Groq)' },
+  { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B (Groq)' },
+  { id: 'llama-3.3-70b', name: 'Llama 3.3 70B (Cerebras)' },
+  { id: 'llama-3.1-8b', name: 'Llama 3.1 8B (Cerebras)' },
+  { id: 'deepseek-chat', name: 'DeepSeek V3 (DeepSeek)' },
+  { id: 'deepseek-reasoner', name: 'DeepSeek R1 (DeepSeek)' },
+  { id: 'deepseek-ai/deepseek-v3-0324', name: 'DeepSeek V3 (Nvidia)' },
+  { id: 'meta-llama/llama-4-maverick', name: 'Llama 4 Maverick (OpenRouter)' },
+  { id: 'mistral-small-latest', name: 'Mistral Small (Mistral)' },
+  { id: 'codestral-latest', name: 'Codestral (Mistral)' },
+  { id: 'command-r', name: 'Command R (Cohere)' },
+  { id: 'command-r-plus', name: 'Command R+ (Cohere)' },
+  { id: 'venice-uncensored', name: 'Venice Uncensored' },
+  { id: 'Qwen/Qwen3-8B', name: 'Qwen3 8B (SiliconFlow)' },
+  { id: 'deepseek-ai/DeepSeek-V3', name: 'DeepSeek V3 (SiliconFlow)' },
+  { id: 'kira-3.5-flash', name: 'Kira 3.5 Flash' },
+  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (Google)' },
 ];
 
 const V2_MODELS = [

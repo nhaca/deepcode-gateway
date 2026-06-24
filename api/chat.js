@@ -15,29 +15,88 @@ const PROVIDERS = {
     keys: (process.env.GROQ_KEYS || '').split(',').filter(Boolean),
     priority: 1,
   },
+  cerebras: {
+    url: 'https://api.cerebras.ai/v1',
+    keys: (process.env.CEREBRAS_KEYS || '').split(',').filter(Boolean),
+    priority: 2,
+  },
+  sambanova: {
+    url: 'https://api.sambanova.ai/v1',
+    keys: (process.env.SAMBANOVA_KEYS || '').split(',').filter(Boolean),
+    priority: 3,
+  },
+  deepseek: {
+    url: 'https://api.deepseek.com/v1',
+    keys: (process.env.DEEPSEEK_KEYS || '').split(',').filter(Boolean),
+    priority: 4,
+  },
   nvidia: {
     url: 'https://integrate.api.nvidia.com/v1',
     keys: (process.env.NVIDIA_KEYS || '').split(',').filter(Boolean),
-    priority: 2,
+    priority: 5,
   },
   openrouter: {
     url: 'https://openrouter.ai/api/v1',
     keys: (process.env.OPENROUTER_KEYS || '').split(',').filter(Boolean),
-    priority: 3,
+    priority: 6,
+  },
+  mistral: {
+    url: 'https://api.mistral.ai/v1',
+    keys: (process.env.MISTRAL_KEYS || '').split(',').filter(Boolean),
+    priority: 7,
+  },
+  cohere: {
+    url: 'https://api.cohere.com/v2',
+    keys: (process.env.COHERE_KEYS || '').split(',').filter(Boolean),
+    priority: 8,
+    isOpenAICompat: false,
+  },
+  venice: {
+    url: 'https://api.venice.ai/api/v1',
+    keys: (process.env.VENICE_KEYS || '').split(',').filter(Boolean),
+    priority: 9,
+  },
+  nscale: {
+    url: 'https://api.nscale.com/v1',
+    keys: (process.env.NSCALE_KEYS || '').split(',').filter(Boolean),
+    priority: 10,
+  },
+  siliconflow: {
+    url: 'https://api.siliconflow.cn/v1',
+    keys: (process.env.SILICONFLOW_KEYS || '').split(',').filter(Boolean),
+    priority: 11,
+  },
+  llm7: {
+    url: 'https://api.llm7.io/v1',
+    keys: (process.env.LLM7_KEYS || '').split(',').filter(Boolean),
+    priority: 12,
+    noKeyRequired: true,
+  },
+  huggingface: {
+    url: 'https://api-inference.huggingface.co/v1',
+    keys: (process.env.HUGGINGFACE_KEYS || '').split(',').filter(Boolean),
+    priority: 13,
   },
   kira: {
     url: 'https://kiraai.vn/api/v1',
     keys: (process.env.KIRA_KEYS || '').split(',').filter(Boolean),
-    priority: 4,
+    priority: 14,
+  },
+  ovhcloud: {
+    url: 'https://api.ovhcloud.com/v1',
+    keys: (process.env.OVHCLOUD_KEYS || '').split(',').filter(Boolean),
+    priority: 15,
+    noKeyRequired: true,
   },
   google: {
     url: 'https://generativelanguage.googleapis.com/v1beta/models',
     keys: (process.env.GOOGLE_KEYS || '').split(',').filter(Boolean),
-    priority: 5,
+    priority: 16,
   },
 };
 
-const KEY_INDEX = { groq: 0, nvidia: 0, openrouter: 0, kira: 0, google: 0 };
+const KEY_INDEX = {};
+for (const k of Object.keys(PROVIDERS)) KEY_INDEX[k] = 0;
 
 function getNextKey(provider) {
   const keys = PROVIDERS[provider]?.keys || [];
@@ -114,21 +173,27 @@ async function callProvider(providerName, model, messages, stream, extraHeaders 
   }
 
   const key = getNextKey(providerName);
-  if (!key) throw new Error(`No keys for provider: ${providerName}`);
+  if (!key && !provider.noKeyRequired) throw new Error(`No keys for provider: ${providerName}`);
 
   const headers = { 'Content-Type': 'application/json' };
-  if (providerName !== 'google') headers['Authorization'] = `Bearer ${key}`;
+  if (key && providerName !== 'google') headers['Authorization'] = `Bearer ${key}`;
   Object.assign(headers, extraHeaders);
 
   const isGoogle = providerName === 'google';
+  const isCohere = providerName === 'cohere';
   const apiModel = isGoogle ? 'gemini-2.5-flash' : model;
-  const url = isGoogle
-    ? `${provider.url}/${apiModel}:generateContent?key=${key}`
-    : `${provider.url}/chat/completions`;
 
-  const body = isGoogle
-    ? { contents: [{ parts: [{ text: messages.map(m => m.content).join('\n') }] }] }
-    : { model: apiModel, messages, stream: !!stream };
+  let url, body;
+  if (isGoogle) {
+    url = `${provider.url}/${apiModel}:generateContent?key=${key}`;
+    body = { contents: [{ parts: [{ text: messages.map(m => m.content).join('\n') }] }] };
+  } else if (isCohere) {
+    url = `${provider.url}/chat`;
+    body = { model: apiModel || 'command-r', messages, stream: !!stream };
+  } else {
+    url = `${provider.url}/chat/completions`;
+    body = { model: apiModel, messages, stream: !!stream };
+  }
 
   const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
 
@@ -143,6 +208,10 @@ async function callProvider(providerName, model, messages, stream, extraHeaders 
   const data = await response.json();
   if (isGoogle) {
     const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    return { choices: [{ message: { content } }] };
+  }
+  if (isCohere) {
+    const content = data.message?.content?.[0]?.text || data.text || '';
     return { choices: [{ message: { content } }] };
   }
   return data;
