@@ -17,6 +17,25 @@ const V1_MODELS = [
   { id: 'deepseek-ai/DeepSeek-V3', name: 'DeepSeek V3 (SiliconFlow)' },
   { id: 'kira-3.5-flash', name: 'Kira 3.5 Flash' },
   { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (Google)' },
+  // GitHub Models (require user's GitHub token)
+  { id: 'github:gpt-4o', name: 'GPT-4o (GitHub)', requiresGithub: true },
+  { id: 'github:gpt-4o-mini', name: 'GPT-4o Mini (GitHub)', requiresGithub: true },
+  { id: 'github:gpt-4.1', name: 'GPT-4.1 (GitHub)', requiresGithub: true },
+  { id: 'github:gpt-4.1-mini', name: 'GPT-4.1 Mini (GitHub)', requiresGithub: true },
+  { id: 'github:o3-mini', name: 'o3-mini (GitHub)', requiresGithub: true },
+  { id: 'github:Llama-3.3-70B-Instruct', name: 'Llama 3.3 70B (GitHub)', requiresGithub: true },
+  { id: 'github:Llama-3.1-405B-Instruct', name: 'Llama 3.1 405B (GitHub)', requiresGithub: true },
+  { id: 'github:Llama-3.1-8B-Instruct', name: 'Llama 3.1 8B (GitHub)', requiresGithub: true },
+  { id: 'github:Llama-4-Scout-17B-16E-Instruct', name: 'Llama 4 Scout (GitHub)', requiresGithub: true },
+  { id: 'github:Llama-4-Maverick-17B-128E-Instruct', name: 'Llama 4 Maverick (GitHub)', requiresGithub: true },
+  { id: 'github:Mistral-Large-2411', name: 'Mistral Large (GitHub)', requiresGithub: true },
+  { id: 'github:Mistral-Small-2501', name: 'Mistral Small (GitHub)', requiresGithub: true },
+  { id: 'github:Phi-4', name: 'Phi-4 (GitHub)', requiresGithub: true },
+  { id: 'github:Phi-4-mini-instruct', name: 'Phi-4 Mini (GitHub)', requiresGithub: true },
+  { id: 'github:DeepSeek-R1', name: 'DeepSeek R1 (GitHub)', requiresGithub: true },
+  { id: 'github:DeepSeek-V3-0324', name: 'DeepSeek V3 (GitHub)', requiresGithub: true },
+  { id: 'github:Cohere-C4AI-Command-R-08-2024', name: 'Command R (GitHub)', requiresGithub: true },
+  { id: 'github:Cohere-C4AI-Command-R-Plus-08-2024', name: 'Command R+ (GitHub)', requiresGithub: true },
 ];
 
 const V2_MODELS = [

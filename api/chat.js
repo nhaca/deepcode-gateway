@@ -85,6 +85,12 @@ const PROVIDERS = {
     keys: (process.env.GOOGLE_KEYS || '').split(',').filter(Boolean),
     priority: 16,
   },
+  github: {
+    url: 'https://models.inference.ai.azure.com/v1',
+    keys: [], // Uses user's own GitHub token via X-GitHub-Token header
+    priority: 17,
+    useUserToken: true,
+  },
 };
 
 const KEY_INDEX = {};
@@ -199,6 +205,23 @@ async function callProvider(providerName, model, messages, stream, extraHeaders 
     global.__kiraState.lastCallTime = Date.now();
   }
 
+  // GitHub Models: use user's own token
+  if (provider.useUserToken) {
+    const userToken = extraHeaders['X-GitHub-Token'];
+    if (!userToken) throw new Error('GitHub token required for GitHub Models. Please connect GitHub in IDE.');
+    const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${userToken}` };
+    const apiModel = model || 'gpt-4o';
+    const url = `${provider.url}/chat/completions`;
+    const body = { model: apiModel, messages, stream: !!stream };
+    const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(`GitHub Models: ${response.status} - ${err.error?.message || JSON.stringify(err)}`);
+    }
+    if (stream) return response;
+    return await response.json();
+  }
+
   const key = getNextKey(providerName);
   if (!key && !provider.noKeyRequired) throw new Error(`No keys for provider: ${providerName}`);
 
@@ -260,7 +283,13 @@ async function callProviderWithRetry(providerName, model, messages, stream, extr
   }
 }
 
-async function autoRoute(model, messages, stream) {
+async function autoRoute(model, messages, stream, extraHeaders = {}) {
+  // GitHub Models: route directly to GitHub provider
+  if (model && model.startsWith('github:')) {
+    const githubModel = model.replace('github:', '');
+    return await callProviderWithRetry('github', githubModel, messages, stream, extraHeaders);
+  }
+
   // Map 'auto' to default model per provider
   const AUTO_MODEL_MAP = {
     groq: 'llama-3.3-70b-versatile',
@@ -360,10 +389,15 @@ async function handleChat(req, res, version, specificModel) {
   const versionConfig = VERSION_MODELS[version];
   const apiModel = model || versionConfig.defaultModel;
 
+  // Extract GitHub token for GitHub Models routing
+  const githubToken = req.headers['x-github-token'];
+  const extraHeaders = {};
+  if (githubToken) extraHeaders['X-GitHub-Token'] = githubToken;
+
   if (version === 2) {
     const proModel = model || 'z-ai/glm-4.7-flash-free';
     try {
-      const result = await autoRoute(proModel, messages, stream);
+      const result = await autoRoute(proModel, messages, stream, extraHeaders);
       return respondWithResult(res, result, stream, req, version, sec);
     } catch (e) {
       return res.status(500).json({ error: e.message });
@@ -373,7 +407,7 @@ async function handleChat(req, res, version, specificModel) {
   if (version === 3) {
     const ultraModel = model || 'z-ai/glm-5.1';
     try {
-      const result = await autoRoute(ultraModel, messages, stream);
+      const result = await autoRoute(ultraModel, messages, stream, extraHeaders);
       return respondWithResult(res, result, stream, req, version, sec);
     } catch (e) {
       return res.status(500).json({ error: e.message });
@@ -382,7 +416,7 @@ async function handleChat(req, res, version, specificModel) {
 
   // v1: DeepCode Go (default, auto model)
   try {
-    const result = await autoRoute(apiModel, messages, stream);
+    const result = await autoRoute(apiModel, messages, stream, extraHeaders);
     return respondWithResult(res, result, stream, req, version, sec);
   } catch (e) {
     return res.status(500).json({ error: e.message });
