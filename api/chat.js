@@ -150,7 +150,7 @@ function handleCors(res, req) {
   const allowed = ALLOWED_ORIGINS.some(o => origin.startsWith(o)) || origin === '';
   res.setHeader('Access-Control-Allow-Origin', allowed ? (origin || '*') : ALLOWED_ORIGINS[0]);
   res.setHeader('Access-Control-Allow-Headers',
-    'Content-Type, Authorization, X-Timestamp, X-Signature, X-Device-ID, X-Platform, X-Version, X-User-Email, X-User-Provider, X-User-Tier, X-GitHub-Token, X-Binding-Signature, X-Binding-Timestamp, X-Login-IP, X-Api-Key, X-Admin-Secret'
+    'Content-Type, Authorization, X-Timestamp, X-Signature, X-Device-ID, X-Platform, X-Version, X-User-Email, X-User-Provider, X-User-Tier, X-GitHub-Token, X-Binding-Signature, X-Binding-Timestamp, X-Login-IP, X-Api-Key, X-Admin-Secret, X-Session-Token'
   );
   if (req.method === 'OPTIONS') { res.status(200).end(); return true; }
   return false;
