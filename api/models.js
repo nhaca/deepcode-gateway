@@ -1,5 +1,5 @@
 const V1_MODELS = [
-  { id: 'auto', name: 'Auto (Best Available)' },
+  { id: 'auto', name: 'DeepCode AI' },
   { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B (Groq)' },
   { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B (Groq)' },
   { id: 'llama-3.3-70b', name: 'Llama 3.3 70B (Cerebras)' },
@@ -23,12 +23,12 @@ const V2_MODELS = [
   { id: 'z-ai/glm-5.1', name: 'GLM 5.1' },
   { id: 'z-ai/glm-4.7-flash-free', name: 'GLM 4.7 Flash Free' },
   { id: 'stepfun/step-3.7-flash-free', name: 'Step 3.7 Flash Free' },
-  { id: 'auto', name: 'Auto' },
+  { id: 'auto', name: 'DeepCode AI' },
 ];
 
 const V3_MODELS = [
   { id: 'z-ai/glm-5.2-free', name: 'GLM 5.2 Free' },
-  { id: 'auto', name: 'Auto' },
+  { id: 'auto', name: 'DeepCode AI' },
 ];
 
 const V4_MODELS = [
@@ -43,7 +43,7 @@ const V4_MODELS = [
   { id: 'qwen-3-235b', name: 'Qwen 3 235B', tier: 'pro' },
   { id: 'kira-3.5-flash', name: 'Kira 3.5 Flash', tier: 'pro' },
   { id: 'kira-2.5-pro', name: 'Kira 2.5 Pro', tier: 'pro' },
-  { id: 'auto', name: 'Auto', tier: 'free' },
+  { id: 'auto', name: 'DeepCode AI', tier: 'free' },
 ];
 
 const VERSION_MODELS = { 1: V1_MODELS, 2: V2_MODELS, 3: V3_MODELS, 4: V4_MODELS };
