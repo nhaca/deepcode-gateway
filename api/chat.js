@@ -299,12 +299,11 @@ async function respondWithResult(res, result, stream, req, version, sec) {
   if (stream && result?.body) {
     return handleStreamResponse(res, result);
   }
-  // Track token usage and deduct credits for non-streaming
+  // Track token usage (credits already deducted in handleChat)
   if (!stream && result?.choices?.[0]?.message?.content) {
     const tokens = estimateMessagesTokens(req.body.messages) + estimateTokens(result.choices[0].message.content);
-    const { trackTokenUsage, useCredits } = require('../lib/api-keys');
+    const { trackTokenUsage } = require('../lib/api-keys');
     trackTokenUsage(req.headers['x-api-key'], tokens).catch(() => {});
-    useCredits(req.headers['x-api-key'], sec.creditCost || 1).catch(() => {});
   }
   return res.json(result);
 }
@@ -313,6 +312,13 @@ async function respondWithResult(res, result, stream, req, version, sec) {
 async function handleChat(req, res, version, specificModel) {
   const sec = await securityCheck(req, version);
   if (!sec.ok) return res.status(sec.status).json({ error: sec.error });
+
+  // Deduct credits upfront (works for both streaming and non-streaming)
+  const apiKey = req.headers['x-api-key'];
+  if (apiKey && sec.creditCost) {
+    const { useCredits } = require('../lib/api-keys');
+    useCredits(apiKey, sec.creditCost).catch(() => {});
+  }
 
   const { model, messages, stream } = req.body;
 
