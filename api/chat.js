@@ -277,15 +277,16 @@ async function autoRoute(model, messages, stream) {
 }
 
 // ===== Stream or JSON response =====
-async function respondWithResult(res, result, stream, req, version, userEmail) {
+async function respondWithResult(res, result, stream, req, version, sec) {
   if (stream && result?.body) {
     return handleStreamResponse(res, result);
   }
-  // Track token usage for non-streaming
+  // Track token usage and deduct credits for non-streaming
   if (!stream && result?.choices?.[0]?.message?.content) {
     const tokens = estimateMessagesTokens(req.body.messages) + estimateTokens(result.choices[0].message.content);
-    const { trackTokenUsage } = require('../lib/api-keys');
+    const { trackTokenUsage, useCredits } = require('../lib/api-keys');
     trackTokenUsage(req.headers['x-api-key'], tokens).catch(() => {});
+    useCredits(req.headers['x-api-key'], sec.creditCost || 1).catch(() => {});
   }
   return res.json(result);
 }
@@ -313,7 +314,7 @@ async function handleChat(req, res, version, specificModel) {
 
     try {
       const result = await callProvider(modelConfig.provider, modelConfig.model, messages, stream, extraHeaders);
-      return respondWithResult(res, result, stream, req, version, sec.userEmail);
+      return respondWithResult(res, result, stream, req, version, sec);
     } catch (e) {
       return res.status(500).json({ error: e.message });
     }
@@ -325,7 +326,7 @@ async function handleChat(req, res, version, specificModel) {
     if (V4_MODELS[reqModel]) return handleChat(req, res, 4, reqModel);
     try {
       const result = await autoRoute(reqModel, messages, stream);
-      return respondWithResult(res, result, stream, req, version, sec.userEmail);
+      return respondWithResult(res, result, stream, req, version, sec);
     } catch (e) {
       return res.status(500).json({ error: e.message });
     }
@@ -339,7 +340,7 @@ async function handleChat(req, res, version, specificModel) {
     const proModel = model || 'z-ai/glm-4.7-flash-free';
     try {
       const result = await autoRoute(proModel, messages, stream);
-      return respondWithResult(res, result, stream, req, version, sec.userEmail);
+      return respondWithResult(res, result, stream, req, version, sec);
     } catch (e) {
       return res.status(500).json({ error: e.message });
     }
@@ -349,7 +350,7 @@ async function handleChat(req, res, version, specificModel) {
     const ultraModel = model || 'z-ai/glm-5.1';
     try {
       const result = await autoRoute(ultraModel, messages, stream);
-      return respondWithResult(res, result, stream, req, version, sec.userEmail);
+      return respondWithResult(res, result, stream, req, version, sec);
     } catch (e) {
       return res.status(500).json({ error: e.message });
     }

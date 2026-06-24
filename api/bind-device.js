@@ -7,7 +7,6 @@ module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  // Verify API key
   const apiKey = req.headers['x-api-key'];
   if (!apiKey) return res.status(401).json({ error: 'Missing API key' });
   const keyData = await verifyApiKey(apiKey);
@@ -23,10 +22,10 @@ module.exports = async (req, res) => {
   const message = `${deviceId}:${email}:${provider || ''}:${ip || ''}:${timestamp}`;
   const bindingSignature = hmacSign(GATEWAY_SECRET, message);
 
-  // Generate session token (for v2+ requests, valid 24 hours)
+  // Generate session token (1 hour TTL for commercial grade)
   const session = generateSessionToken(apiKey, deviceId, email);
 
-  // Derive user secret (for IDE to sign requests)
+  // Derive per-user secret (IDE stores locally to sign requests)
   const userSecret = deriveUserSecret(apiKey);
 
   return res.json({
@@ -35,6 +34,6 @@ module.exports = async (req, res) => {
     bindingTimestamp: timestamp,
     sessionToken: session.token,
     sessionExpiresAt: session.expiresAt,
-    userSecret, // IDE stores this locally to sign requests
+    userSecret,
   });
 };
