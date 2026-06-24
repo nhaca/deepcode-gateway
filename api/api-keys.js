@@ -29,7 +29,7 @@ module.exports = async (req, res) => {
     }
 
     const tier = req.body?.tier || 'free';
-    const keyData = await generateApiKey(email, tier);
+    const keyData = await generateApiKey(email, tier, provider);
 
     return res.json({
       success: true,

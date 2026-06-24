@@ -359,7 +359,7 @@ async function handleChat(req, res, version, specificModel) {
   // v1: DeepCode Go (default, auto model)
   try {
     const result = await autoRoute(apiModel, messages, stream);
-    return respondWithResult(res, result, stream, req, version, sec.userEmail);
+    return respondWithResult(res, result, stream, req, version, sec);
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
