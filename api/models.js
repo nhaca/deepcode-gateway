@@ -1,5 +1,3 @@
-const { GATEWAY_KEY } = require('../lib/security');
-
 const V1_MODELS = [
   { id: 'auto', name: 'Auto (Best Available)' },
   { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B (Groq)' },
@@ -48,12 +46,7 @@ const V4_MODELS = [
   { id: 'auto', name: 'Auto', tier: 'free' },
 ];
 
-const VERSION_MODELS = {
-  1: V1_MODELS,
-  2: V2_MODELS,
-  3: V3_MODELS,
-  4: V4_MODELS,
-};
+const VERSION_MODELS = { 1: V1_MODELS, 2: V2_MODELS, 3: V3_MODELS, 4: V4_MODELS };
 
 const { verifyApiKey } = require('../lib/api-keys');
 
@@ -61,23 +54,15 @@ module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // Verify API key
   const apiKey = req.headers['x-api-key'];
-  if (!apiKey) {
-    return res.status(401).json({ error: 'Missing API key' });
-  }
+  if (!apiKey) return res.status(401).json({ error: 'Missing API key' });
   const keyData = await verifyApiKey(apiKey);
-  if (!keyData) {
-    return res.status(401).json({ error: 'Invalid API key' });
-  }
+  if (!keyData) return res.status(401).json({ error: 'Invalid API key' });
 
-  // Parse version from URL
   const url = new URL(req.url, 'http://localhost');
   const pathParts = url.pathname.split('/').filter(Boolean);
   let version = 1;
-  if (pathParts[0] && pathParts[0].startsWith('v')) {
-    version = parseInt(pathParts[0].substring(1)) || 1;
-  }
+  if (pathParts[0] && pathParts[0].startsWith('v')) version = parseInt(pathParts[0].substring(1)) || 1;
 
   const models = VERSION_MODELS[version] || V1_MODELS;
   return res.json({

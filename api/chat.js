@@ -1,12 +1,4 @@
-const {
-  securityCheck,
-  bindDevice,
-  verifyDeviceBinding,
-  getClientIp,
-  GATEWAY_KEY,
-  getAuditLog,
-  getSecurityStats,
-} = require('../lib/security');
+const { securityCheck, getClientIp, getAuditLog, getSecurityStats } = require('../lib/security');
 
 // ===== Provider Config =====
 const PROVIDERS = {
@@ -89,7 +81,7 @@ const PROVIDERS = {
     noKeyRequired: true,
   },
   google: {
-    url: 'https://generativelanguage.googleapis.com/v1beta/models',
+    url: 'https://generativelanguage.googleapis.com/v1beta',
     keys: (process.env.GOOGLE_KEYS || '').split(',').filter(Boolean),
     priority: 16,
   },
@@ -114,7 +106,7 @@ const VERSION_MODELS = {
   4: { defaultModel: 'auto', label: 'DeepCode Server 2' },
 };
 
-// v4 model-specific routing: /v4/chat/completions/claude-opus-4-8
+// v4 model-specific routing
 const V4_MODELS = {
   'claude-opus-4-8': { provider: 'openrouter', model: 'anthropic/claude-opus-4', name: 'Claude Opus 4.8' },
   'claude-sonnet-4': { provider: 'openrouter', model: 'anthropic/claude-sonnet-4', name: 'Claude Sonnet 4' },
@@ -144,32 +136,67 @@ const V4_TIER_RESTRICTED = {
   'kira-2.5-pro': ['pro', 'premium', 'business'],
 };
 
+// ===== Allowed CORS origins =====
+const ALLOWED_ORIGINS = [
+  'electron://localhost',
+  'capacitor://localhost',
+  'http://localhost',
+  'https://deepcode.vercel.app',
+];
+
 // ===== CORS Handler =====
 function handleCors(res, req) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const origin = req.headers['origin'] || '';
+  const allowed = ALLOWED_ORIGINS.some(o => origin.startsWith(o)) || origin === '';
+  res.setHeader('Access-Control-Allow-Origin', allowed ? (origin || '*') : ALLOWED_ORIGINS[0]);
   res.setHeader('Access-Control-Allow-Headers',
-    'Content-Type, Authorization, X-Timestamp, X-Signature, X-Device-ID, X-Platform, X-Version, X-User-Email, X-User-Provider, X-User-Tier, X-GitHub-Token, X-Binding-Signature, X-Binding-Timestamp, X-Login-IP'
+    'Content-Type, Authorization, X-Timestamp, X-Signature, X-Device-ID, X-Platform, X-Version, X-User-Email, X-User-Provider, X-User-Tier, X-GitHub-Token, X-Binding-Signature, X-Binding-Timestamp, X-Login-IP, X-Api-Key, X-Admin-Secret'
   );
   if (req.method === 'OPTIONS') { res.status(200).end(); return true; }
   return false;
 }
 
+// ===== Streaming response handler (shared) =====
+async function handleStreamResponse(res, response) {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      res.write(decoder.decode(value, { stream: true }));
+    }
+  } catch {}
+  return res.end();
+}
+
+// ===== Estimate tokens (simple: ~4 chars per token) =====
+function estimateTokens(text) {
+  return Math.ceil((text || '').length / 4);
+}
+
+function estimateMessagesTokens(messages) {
+  return messages.reduce((sum, m) => sum + estimateTokens(m.content) + 4, 0);
+}
+
 // ===== Provider Call =====
-const LAST_CALL_TIME = { kira: 0 };
-const KIRA_MIN_DELAY_MS = 1000; // 1 second between Kira calls
+// Kira rate limit: use global state instead of local variable (works in serverless)
+if (!global.__kiraState) global.__kiraState = { lastCallTime: 0 };
+const KIRA_MIN_DELAY_MS = 1000;
 
 async function callProvider(providerName, model, messages, stream, extraHeaders = {}) {
   const provider = PROVIDERS[providerName];
   if (!provider) throw new Error(`Unknown provider: ${providerName}`);
 
-  // Rate limit protection for Kira
+  // Kira rate limit
   if (providerName === 'kira') {
     const now = Date.now();
-    const elapsed = now - LAST_CALL_TIME.kira;
-    if (elapsed < KIRA_MIN_DELAY_MS) {
-      await new Promise(r => setTimeout(r, KIRA_MIN_DELAY_MS - elapsed));
-    }
-    LAST_CALL_TIME.kira = Date.now();
+    const elapsed = now - global.__kiraState.lastCallTime;
+    if (elapsed < KIRA_MIN_DELAY_MS) await new Promise(r => setTimeout(r, KIRA_MIN_DELAY_MS - elapsed));
+    global.__kiraState.lastCallTime = Date.now();
   }
 
   const key = getNextKey(providerName);
@@ -181,11 +208,11 @@ async function callProvider(providerName, model, messages, stream, extraHeaders 
 
   const isGoogle = providerName === 'google';
   const isCohere = providerName === 'cohere';
-  const apiModel = isGoogle ? 'gemini-2.5-flash' : model;
+  const apiModel = model || (isGoogle ? 'gemini-2.5-flash' : 'auto');
 
   let url, body;
   if (isGoogle) {
-    url = `${provider.url}/${apiModel}:generateContent?key=${key}`;
+    url = `${provider.url}/models/${apiModel}:generateContent?key=${key}`;
     body = { contents: [{ parts: [{ text: messages.map(m => m.content).join('\n') }] }] };
   } else if (isCohere) {
     url = `${provider.url}/chat`;
@@ -202,7 +229,6 @@ async function callProvider(providerName, model, messages, stream, extraHeaders 
     throw new Error(`${providerName}: ${response.status} - ${err.error?.message || JSON.stringify(err)}`);
   }
 
-  // Streaming (non-Google only)
   if (stream && !isGoogle) return response;
 
   const data = await response.json();
@@ -217,15 +243,14 @@ async function callProvider(providerName, model, messages, stream, extraHeaders 
   return data;
 }
 
-// ===== Auto Route (try providers in order) =====
+// ===== Auto Route with retry =====
 async function callProviderWithRetry(providerName, model, messages, stream, extraHeaders = {}, maxRetries = 2) {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await callProvider(providerName, model, messages, stream, extraHeaders);
     } catch (e) {
-      const is429 = e.message.includes('429');
-      if (is429 && attempt < maxRetries) {
-        // Wait longer on 429: 2s, 4s, 8s...
+      const isRetryable = e.message.includes('429') || e.message.includes('500') || e.message.includes('502') || e.message.includes('503');
+      if (isRetryable && attempt < maxRetries) {
         const delay = Math.pow(2, attempt + 1) * 1000;
         await new Promise(r => setTimeout(r, delay));
         continue;
@@ -237,14 +262,13 @@ async function callProviderWithRetry(providerName, model, messages, stream, extr
 
 async function autoRoute(model, messages, stream) {
   const providerList = Object.keys(PROVIDERS)
-    .filter(p => PROVIDERS[p].keys.length > 0)
+    .filter(p => PROVIDERS[p].keys.length > 0 || PROVIDERS[p].noKeyRequired)
     .sort((a, b) => PROVIDERS[a].priority - PROVIDERS[b].priority);
 
   let lastError;
   for (const provider of providerList) {
     try {
-      const result = await callProviderWithRetry(provider, model, messages, stream);
-      return result;
+      return await callProviderWithRetry(provider, model, messages, stream);
     } catch (e) {
       lastError = e.message;
     }
@@ -252,67 +276,44 @@ async function autoRoute(model, messages, stream) {
   throw new Error(lastError || 'All providers failed');
 }
 
-// ===== Device Binding IPC =====
-async function handleBindDevice(req, res) {
-  const { deviceId, email, provider, ip } = req.body;
-  if (!deviceId || !email) {
-    return res.status(400).json({ error: 'deviceId and email required' });
+// ===== Stream or JSON response =====
+async function respondWithResult(res, result, stream, req, version, userEmail) {
+  if (stream && result?.body) {
+    return handleStreamResponse(res, result);
   }
-  const result = bindDevice(deviceId, email, provider || 'unknown', ip || 'unknown');
+  // Track token usage for non-streaming
+  if (!stream && result?.choices?.[0]?.message?.content) {
+    const tokens = estimateMessagesTokens(req.body.messages) + estimateTokens(result.choices[0].message.content);
+    const { trackTokenUsage } = require('../lib/api-keys');
+    trackTokenUsage(req.headers['x-api-key'], tokens).catch(() => {});
+  }
   return res.json(result);
 }
 
 // ===== Main Chat Handler =====
 async function handleChat(req, res, version, specificModel) {
-  // Security check (includes API key, device, user identity, IP consistency, tier access)
   const sec = await securityCheck(req, version);
-  if (!sec.ok) {
-    return res.status(sec.status).json({ error: sec.error });
-  }
+  if (!sec.ok) return res.status(sec.status).json({ error: sec.error });
 
   const { model, messages, stream } = req.body;
-  const userEmail = sec.userEmail;
 
   // v4: model-specific routing
   if (version === 4 && specificModel) {
     const modelConfig = V4_MODELS[specificModel];
-    if (!modelConfig) {
-      return res.status(400).json({ error: `Unknown model: ${specificModel}. Available: ${Object.keys(V4_MODELS).join(', ')}` });
-    }
+    if (!modelConfig) return res.status(400).json({ error: `Unknown model: ${specificModel}. Available: ${Object.keys(V4_MODELS).join(', ')}` });
 
-    // Check tier restriction
     const allowedTiers = V4_TIER_RESTRICTED[specificModel];
     if (allowedTiers && !allowedTiers.includes(sec.userTier)) {
-      return res.status(403).json({
-        error: `Model ${specificModel} requires: ${allowedTiers.join(', ')} tier`,
-        required: allowedTiers,
-        current: sec.userTier,
-      });
+      return res.status(403).json({ error: `Model ${specificModel} requires: ${allowedTiers.join(', ')} tier`, required: allowedTiers, current: sec.userTier });
     }
 
-    // GitHub token pass-through
     const githubToken = req.headers['x-github-token'];
     const extraHeaders = {};
     if (githubToken) extraHeaders['X-GitHub-Token'] = githubToken;
 
     try {
       const result = await callProvider(modelConfig.provider, modelConfig.model, messages, stream, extraHeaders);
-      if (stream && result?.body) {
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-        const reader = result.body.getReader();
-        const decoder = new TextDecoder();
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            res.write(decoder.decode(value, { stream: true }));
-          }
-        } catch {}
-        return res.end();
-      }
-      return res.json(result);
+      return respondWithResult(res, result, stream, req, version, sec.userEmail);
     } catch (e) {
       return res.status(500).json({ error: e.message });
     }
@@ -321,29 +322,10 @@ async function handleChat(req, res, version, specificModel) {
   // v4: auto-select or use model from body
   if (version === 4) {
     const reqModel = model || 'auto';
-    // Check if requested model is in V4_MODELS
-    if (V4_MODELS[reqModel]) {
-      return handleChat(req, res, 4, reqModel);
-    }
-    // Auto route
+    if (V4_MODELS[reqModel]) return handleChat(req, res, 4, reqModel);
     try {
       const result = await autoRoute(reqModel, messages, stream);
-      if (stream && result?.body) {
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-        const reader = result.body.getReader();
-        const decoder = new TextDecoder();
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            res.write(decoder.decode(value, { stream: true }));
-          }
-        } catch {}
-        return res.end();
-      }
-      return res.json(result);
+      return respondWithResult(res, result, stream, req, version, sec.userEmail);
     } catch (e) {
       return res.status(500).json({ error: e.message });
     }
@@ -353,53 +335,21 @@ async function handleChat(req, res, version, specificModel) {
   const versionConfig = VERSION_MODELS[version];
   const apiModel = model || versionConfig.defaultModel;
 
-  // v2: DeepCode Pro specific models
   if (version === 2) {
     const proModel = model || 'z-ai/glm-4.7-flash-free';
     try {
       const result = await autoRoute(proModel, messages, stream);
-      if (stream && result?.body) {
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-        const reader = result.body.getReader();
-        const decoder = new TextDecoder();
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            res.write(decoder.decode(value, { stream: true }));
-          }
-        } catch {}
-        return res.end();
-      }
-      return res.json(result);
+      return respondWithResult(res, result, stream, req, version, sec.userEmail);
     } catch (e) {
       return res.status(500).json({ error: e.message });
     }
   }
 
-  // v3: DeepCode Ultra
   if (version === 3) {
     const ultraModel = model || 'z-ai/glm-5.1';
     try {
       const result = await autoRoute(ultraModel, messages, stream);
-      if (stream && result?.body) {
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-        const reader = result.body.getReader();
-        const decoder = new TextDecoder();
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            res.write(decoder.decode(value, { stream: true }));
-          }
-        } catch {}
-        return res.end();
-      }
-      return res.json(result);
+      return respondWithResult(res, result, stream, req, version, sec.userEmail);
     } catch (e) {
       return res.status(500).json({ error: e.message });
     }
@@ -408,72 +358,86 @@ async function handleChat(req, res, version, specificModel) {
   // v1: DeepCode Go (default, auto model)
   try {
     const result = await autoRoute(apiModel, messages, stream);
-    if (stream && result?.body) {
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      const reader = result.body.getReader();
-      const decoder = new TextDecoder();
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          res.write(decoder.decode(value, { stream: true }));
-        }
-      } catch {}
-      return res.end();
-    }
-    return res.json(result);
+    return respondWithResult(res, result, stream, req, version, sec.userEmail);
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
+}
+
+// ===== Models Handler =====
+function handleModels(req, res) {
+  const models = Object.entries(VERSION_MODELS).map(([v, c]) => ({
+    version: parseInt(v),
+    label: c.label,
+    defaultModel: c.defaultModel,
+  }));
+
+  const v4Models = Object.entries(V4_MODELS).map(([id, m]) => ({
+    id,
+    name: m.name,
+    provider: m.provider,
+    model: m.model,
+    tiers: V4_TIER_RESTRICTED[id] || [],
+  }));
+
+  return res.json({ models, v4Models, providers: Object.keys(PROVIDERS) });
+}
+
+// ===== Health Check Handler =====
+function handleHealth(req, res) {
+  const providers = {};
+  for (const [name, p] of Object.entries(PROVIDERS)) {
+    providers[name] = { hasKeys: p.keys.length > 0, priority: p.priority };
+  }
+  return res.json({ status: 'ok', timestamp: new Date().toISOString(), providers });
 }
 
 // ===== Export =====
 module.exports = async function handler(req, res) {
   if (handleCors(res, req)) return;
 
-  const url = new URL(req.url, 'http://localhost');
+  let url;
+  try {
+    url = new URL(req.url, 'http://localhost');
+  } catch {
+    return res.status(400).json({ error: 'Invalid URL' });
+  }
+
   const pathParts = url.pathname.split('/').filter(Boolean);
 
-  // ===== Security Admin Endpoints (GET, require admin secret) =====
+  // GET endpoints
   if (req.method === 'GET') {
-    const adminSecret = req.headers['x-admin-secret'] || url.searchParams.get('secret');
+    const adminSecret = req.headers['x-admin-secret'];
 
-    // GET /security/stats
+    // Health check
+    if (pathParts.includes('health')) return handleHealth(req, res);
+
+    // Models
+    if (pathParts.includes('models')) return handleModels(req, res);
+
+    // Security admin: stats
     if (pathParts.includes('stats')) {
-      if (!adminSecret || adminSecret !== process.env.GATEWAY_SECRET) {
-        return res.status(401).json({ error: 'Unauthorized' });
-      }
+      if (!adminSecret || adminSecret !== process.env.GATEWAY_SECRET) return res.status(401).json({ error: 'Unauthorized' });
       return res.json(getSecurityStats());
     }
 
-    // GET /security/audit
+    // Security admin: audit
     if (pathParts.includes('audit')) {
-      if (!adminSecret || adminSecret !== process.env.GATEWAY_SECRET) {
-        return res.status(401).json({ error: 'Unauthorized' });
-      }
+      if (!adminSecret || adminSecret !== process.env.GATEWAY_SECRET) return res.status(401).json({ error: 'Unauthorized' });
       const limit = parseInt(url.searchParams.get('limit')) || 100;
       return res.json({ entries: getAuditLog(limit) });
     }
+
+    return res.status(404).json({ error: 'Not found' });
   }
 
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  // Parse URL to determine version and optional model
-  // pathParts: ['v1', 'chat', 'completions'] or ['v4', 'chat', 'completions', 'claude-opus-4-8']
-
+  // Parse version and optional model from URL
   let version = 1;
   let specificModel = null;
-
-  if (pathParts[0] && pathParts[0].startsWith('v')) {
-    version = parseInt(pathParts[0].substring(1)) || 1;
-  }
-  if (pathParts.length > 3 && pathParts[0].startsWith('v')) {
-    specificModel = pathParts[3]; // e.g., 'claude-opus-4-8'
-  }
+  if (pathParts[0] && pathParts[0].startsWith('v')) version = parseInt(pathParts[0].substring(1)) || 1;
+  if (pathParts.length > 3 && pathParts[0].startsWith('v')) specificModel = pathParts[3];
 
   return handleChat(req, res, version, specificModel);
 };
-
-module.exports.handleBindDevice = handleBindDevice;
