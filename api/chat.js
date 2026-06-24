@@ -261,6 +261,23 @@ async function callProviderWithRetry(providerName, model, messages, stream, extr
 }
 
 async function autoRoute(model, messages, stream) {
+  // Map 'auto' to default model per provider
+  const AUTO_MODEL_MAP = {
+    groq: 'llama-3.3-70b-versatile',
+    cerebras: 'llama-3.3-70b',
+    sambanova: 'DeepSeek-V3-0324',
+    nvidia: 'meta/llama-3.3-70b-instruct',
+    openrouter: 'meta-llama/llama-3.3-70b-instruct',
+    mistral: 'mistral-small-latest',
+    cohere: 'command-r',
+    venice: 'venice-uncensored',
+    llm7: 'meta-llama/llama-3.3-70b-instruct',
+    huggingface: 'Qwen/Qwen3-8B',
+    kira: 'kira-3.5-flash',
+    ovhcloud: 'meta-llama/Meta-Llama-3.3-70B-Instruct',
+    google: 'gemini-2.5-flash',
+  };
+
   const providerList = Object.keys(PROVIDERS)
     .filter(p => PROVIDERS[p].keys.length > 0 || PROVIDERS[p].noKeyRequired)
     .sort((a, b) => PROVIDERS[a].priority - PROVIDERS[b].priority);
@@ -268,7 +285,8 @@ async function autoRoute(model, messages, stream) {
   let lastError;
   for (const provider of providerList) {
     try {
-      return await callProviderWithRetry(provider, model, messages, stream);
+      const providerModel = (model === 'auto') ? (AUTO_MODEL_MAP[provider] || 'auto') : model;
+      return await callProviderWithRetry(provider, providerModel, messages, stream);
     } catch (e) {
       lastError = e.message;
     }
