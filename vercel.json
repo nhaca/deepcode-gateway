@@ -9,6 +9,7 @@
     { "src": "/models", "dest": "/api/chat.js" },
     { "src": "/bind-device", "dest": "/api/bind-device.js" },
     { "src": "/api-keys", "dest": "/api/api-keys.js" },
+    { "src": "/credits", "dest": "/api/credits.js" },
     { "src": "/security/stats", "dest": "/api/chat.js" },
     { "src": "/security/audit", "dest": "/api/chat.js" }
   ]
