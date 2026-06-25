@@ -91,7 +91,7 @@ function getNextKey(provider) {
 
 // ===== Version → Model Mapping =====
 const VERSION_MODELS = {
-  1: { defaultModel: 'auto', label: 'DeepCode AI' },
+  1: { defaultModel: 'auto', label: 'DeepCode' },
   2: { defaultModel: 'z-ai/glm-5.1', label: 'DeepCode Pro' },
   3: { defaultModel: 'z-ai/glm-5.2-free', label: 'DeepCode Ultra' },
   4: { defaultModel: 'auto', label: 'DeepCode Server 2' },
@@ -273,6 +273,16 @@ async function autoRoute(model, messages, stream, extraHeaders = {}) {
   if (model && model.startsWith('github:')) {
     const githubModel = model.replace('github:', '');
     return await callProviderWithRetry('github', githubModel, messages, stream, extraHeaders);
+  }
+
+  // Prefixed models: openrouter:, llm7:, huggingface:, ovhcloud:
+  if (model && model.includes(':')) {
+    const [prefix, ...modelParts] = model.split(':');
+    const providerName = prefix.toLowerCase();
+    const modelName = modelParts.join(':');
+    if (PROVIDERS[providerName]) {
+      return await callProviderWithRetry(providerName, modelName, messages, stream, extraHeaders);
+    }
   }
 
   // Map 'auto' to default model per provider

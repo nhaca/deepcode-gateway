@@ -1,39 +1,66 @@
 const V1_MODELS = [
-  { id: 'auto', name: 'DeepCode AI' },
+  { id: 'auto', name: 'DeepCode' },
   // Groq
   { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B (Groq)' },
   { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B (Groq)' },
+  { id: 'llama-3.1-70b-versatile', name: 'Llama 3.1 70B (Groq)' },
+  { id: 'gemma2-9b-it', name: 'Gemma 2 9B (Groq)' },
+  { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B (Groq)' },
   // Cerebras
   { id: 'llama-3.3-70b', name: 'Llama 3.3 70B (Cerebras)' },
   { id: 'llama-3.1-8b', name: 'Llama 3.1 8B (Cerebras)' },
+  { id: 'llama-3.1-70b', name: 'Llama 3.1 70B (Cerebras)' },
   // SambaNova
   { id: 'DeepSeek-V3-0324', name: 'DeepSeek V3 (SambaNova)' },
+  { id: 'Llama-3.3-70B', name: 'Llama 3.3 70B (SambaNova)' },
+  { id: 'Llama-3.1-8B', name: 'Llama 3.1 8B (SambaNova)' },
+  { id: 'Llama-3.1-70B', name: 'Llama 3.1 70B (SambaNova)' },
   // Nvidia
   { id: 'meta/llama-3.3-70b-instruct', name: 'Llama 3.3 70B (Nvidia)' },
+  { id: 'meta/llama-3.1-8b-instruct', name: 'Llama 3.1 8B (Nvidia)' },
+  { id: 'meta/llama-3.1-70b-instruct', name: 'Llama 3.1 70B (Nvidia)' },
+  { id: 'deepseek-ai/deepseek-r1', name: 'DeepSeek R1 (Nvidia)' },
+  { id: 'mistralai/mistral-large-2-instruct', name: 'Mistral Large (Nvidia)' },
   // OpenRouter
-  { id: 'meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 70B (OpenRouter)' },
-  { id: 'meta-llama/llama-3.1-8b-instruct', name: 'Llama 3.1 8B (OpenRouter)' },
-  { id: 'mistralai/mistral-7b-instruct', name: 'Mistral 7B (OpenRouter)' },
-  { id: 'qwen/qwen-2.5-72b-instruct', name: 'Qwen 2.5 72B (OpenRouter)' },
-  { id: 'google/gemma-2-9b-it', name: 'Gemma 2 9B (OpenRouter)' },
+  { id: 'openrouter:meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 70B (OpenRouter)' },
+  { id: 'openrouter:meta-llama/llama-3.1-8b-instruct', name: 'Llama 3.1 8B (OpenRouter)' },
+  { id: 'openrouter:meta-llama/llama-3.1-70b-instruct', name: 'Llama 3.1 70B (OpenRouter)' },
+  { id: 'openrouter:mistralai/mistral-7b-instruct', name: 'Mistral 7B (OpenRouter)' },
+  { id: 'openrouter:qwen/qwen-2.5-72b-instruct', name: 'Qwen 2.5 72B (OpenRouter)' },
+  { id: 'openrouter:google/gemma-2-9b-it', name: 'Gemma 2 9B (OpenRouter)' },
+  { id: 'openrouter:anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet (OpenRouter)' },
+  { id: 'openrouter:openai/gpt-4o-mini', name: 'GPT-4o Mini (OpenRouter)' },
+  { id: 'openrouter:openai/gpt-4o', name: 'GPT-4o (OpenRouter)' },
+  { id: 'openrouter:google/gemini-2.0-flash-001', name: 'Gemini 2.0 Flash (OpenRouter)' },
   // Mistral
   { id: 'mistral-small-latest', name: 'Mistral Small (Mistral)' },
+  { id: 'mistral-large-latest', name: 'Mistral Large (Mistral)' },
   { id: 'codestral-latest', name: 'Codestral (Mistral)' },
+  { id: 'open-mistral-nemo', name: 'Mistral Nemo (Mistral)' },
   // Cohere
   { id: 'command-r', name: 'Command R (Cohere)' },
   { id: 'command-r-plus', name: 'Command R+ (Cohere)' },
+  { id: 'command-r-light', name: 'Command R Light (Cohere)' },
   // Venice
   { id: 'venice-uncensored', name: 'Venice Uncensored' },
   // LLM7
-  { id: 'meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 70B (LLM7)' },
+  { id: 'llm7:meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 70B (LLM7)' },
+  { id: 'llm7:meta-llama/llama-3.1-8b-instruct', name: 'Llama 3.1 8B (LLM7)' },
   // HuggingFace
-  { id: 'Qwen/Qwen3-8B', name: 'Qwen3 8B (HuggingFace)' },
+  { id: 'huggingface:Qwen/Qwen3-8B', name: 'Qwen3 8B (HuggingFace)' },
+  { id: 'huggingface:meta-llama/Llama-3.3-70B-Instruct', name: 'Llama 3.3 70B (HuggingFace)' },
+  { id: 'huggingface:meta-llama/Llama-3.1-8B-Instruct', name: 'Llama 3.1 8B (HuggingFace)' },
   // Kira
   { id: 'kira-3.5-flash', name: 'Kira 3.5 Flash' },
+  { id: 'kira-2.5-pro', name: 'Kira 2.5 Pro' },
   // OVHcloud
-  { id: 'meta-llama/Meta-Llama-3.3-70B-Instruct', name: 'Llama 3.3 70B (OVHcloud)' },
+  { id: 'ovhcloud:meta-llama/Meta-Llama-3.3-70B-Instruct', name: 'Llama 3.3 70B (OVHcloud)' },
+  { id: 'ovhcloud:meta-llama/Meta-Llama-3.1-8B-Instruct', name: 'Llama 3.1 8B (OVHcloud)' },
   // Google
   { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (Google)' },
+  { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash (Google)' },
+  { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash (Google)' },
+  { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro (Google)' },
   // GitHub Models (require user's GitHub token)
   { id: 'github:gpt-4o', name: 'GPT-4o (GitHub)', requiresGithub: true },
   { id: 'github:gpt-4o-mini', name: 'GPT-4o Mini (GitHub)', requiresGithub: true },
@@ -59,12 +86,12 @@ const V2_MODELS = [
   { id: 'z-ai/glm-5.1', name: 'GLM 5.1' },
   { id: 'z-ai/glm-4.7-flash-free', name: 'GLM 4.7 Flash Free' },
   { id: 'stepfun/step-3.7-flash-free', name: 'Step 3.7 Flash Free' },
-  { id: 'auto', name: 'DeepCode AI' },
+  { id: 'auto', name: 'DeepCode' },
 ];
 
 const V3_MODELS = [
   { id: 'z-ai/glm-5.2-free', name: 'GLM 5.2 Free' },
-  { id: 'auto', name: 'DeepCode AI' },
+  { id: 'auto', name: 'DeepCode' },
 ];
 
 const V4_MODELS = [
@@ -79,7 +106,7 @@ const V4_MODELS = [
   { id: 'qwen-3-235b', name: 'Qwen 3 235B', tier: 'pro' },
   { id: 'kira-3.5-flash', name: 'Kira 3.5 Flash', tier: 'pro' },
   { id: 'kira-2.5-pro', name: 'Kira 2.5 Pro', tier: 'pro' },
-  { id: 'auto', name: 'DeepCode AI', tier: 'free' },
+  { id: 'auto', name: 'DeepCode', tier: 'free' },
 ];
 
 const VERSION_MODELS = { 1: V1_MODELS, 2: V2_MODELS, 3: V3_MODELS, 4: V4_MODELS };
