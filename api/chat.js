@@ -17,78 +17,46 @@ const PROVIDERS = {
     keys: (process.env.SAMBANOVA_KEYS || '').split(',').filter(Boolean),
     priority: 3,
   },
-  deepseek: {
-    url: 'https://api.deepseek.com/v1',
-    keys: (process.env.DEEPSEEK_KEYS || '').split(',').filter(Boolean),
-    priority: 4,
-  },
   nvidia: {
     url: 'https://integrate.api.nvidia.com/v1',
     keys: (process.env.NVIDIA_KEYS || '').split(',').filter(Boolean),
-    priority: 5,
-  },
-  openrouter: {
-    url: 'https://openrouter.ai/api/v1',
-    keys: (process.env.OPENROUTER_KEYS || '').split(',').filter(Boolean),
-    priority: 6,
+    priority: 4,
   },
   mistral: {
     url: 'https://api.mistral.ai/v1',
     keys: (process.env.MISTRAL_KEYS || '').split(',').filter(Boolean),
-    priority: 7,
+    priority: 5,
   },
   cohere: {
     url: 'https://api.cohere.com/v2',
     keys: (process.env.COHERE_KEYS || '').split(',').filter(Boolean),
-    priority: 8,
+    priority: 6,
     isOpenAICompat: false,
   },
   venice: {
     url: 'https://api.venice.ai/api/v1',
     keys: (process.env.VENICE_KEYS || '').split(',').filter(Boolean),
-    priority: 9,
-  },
-  nscale: {
-    url: 'https://api.nscale.com/v1',
-    keys: (process.env.NSCALE_KEYS || '').split(',').filter(Boolean),
-    priority: 10,
-  },
-  siliconflow: {
-    url: 'https://api.siliconflow.cn/v1',
-    keys: (process.env.SILICONFLOW_KEYS || '').split(',').filter(Boolean),
-    priority: 11,
-  },
-  llm7: {
-    url: 'https://api.llm7.io/v1',
-    keys: (process.env.LLM7_KEYS || '').split(',').filter(Boolean),
-    priority: 12,
-    noKeyRequired: true,
+    priority: 7,
   },
   huggingface: {
     url: 'https://api-inference.huggingface.co/v1',
     keys: (process.env.HUGGINGFACE_KEYS || '').split(',').filter(Boolean),
-    priority: 13,
+    priority: 8,
   },
   kira: {
     url: 'https://kiraai.vn/api/v1',
     keys: (process.env.KIRA_KEYS || '').split(',').filter(Boolean),
-    priority: 14,
-  },
-  ovhcloud: {
-    url: 'https://api.ovhcloud.com/v1',
-    keys: (process.env.OVHCLOUD_KEYS || '').split(',').filter(Boolean),
-    priority: 15,
-    noKeyRequired: true,
+    priority: 9,
   },
   google: {
     url: 'https://generativelanguage.googleapis.com/v1beta',
     keys: (process.env.GOOGLE_KEYS || '').split(',').filter(Boolean),
-    priority: 16,
+    priority: 10,
   },
   github: {
     url: 'https://models.inference.ai.azure.com/v1',
     keys: [], // Uses user's own GitHub token via X-GitHub-Token header
-    priority: 17,
+    priority: 11,
     useUserToken: true,
   },
 };
@@ -296,14 +264,11 @@ async function autoRoute(model, messages, stream, extraHeaders = {}) {
     cerebras: 'llama-3.3-70b',
     sambanova: 'DeepSeek-V3-0324',
     nvidia: 'meta/llama-3.3-70b-instruct',
-    openrouter: 'meta-llama/llama-3.3-70b-instruct',
     mistral: 'mistral-small-latest',
     cohere: 'command-r',
     venice: 'venice-uncensored',
-    llm7: 'meta-llama/llama-3.3-70b-instruct',
     huggingface: 'Qwen/Qwen3-8B',
     kira: 'kira-3.5-flash',
-    ovhcloud: 'meta-llama/Meta-Llama-3.3-70B-Instruct',
     google: 'gemini-2.5-flash',
   };
 
