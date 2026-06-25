@@ -11,8 +11,11 @@ const V1_MODELS = [
   { id: 'command-r', name: 'Command R (Cohere)' },
   { id: 'command-r-plus', name: 'Command R+ (Cohere)' },
   { id: 'venice-uncensored', name: 'Venice Uncensored' },
+  { id: 'meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 70B (OpenRouter)' },
+  { id: 'meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 70B (LLM7)' },
   { id: 'Qwen/Qwen3-8B', name: 'Qwen3 8B (HuggingFace)' },
   { id: 'kira-3.5-flash', name: 'Kira 3.5 Flash' },
+  { id: 'meta-llama/Meta-Llama-3.3-70B-Instruct', name: 'Llama 3.3 70B (OVHcloud)' },
   { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (Google)' },
   // GitHub Models (require user's GitHub token)
   { id: 'github:gpt-4o', name: 'GPT-4o (GitHub)', requiresGithub: true },

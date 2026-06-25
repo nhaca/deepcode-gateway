@@ -38,25 +38,42 @@ const PROVIDERS = {
     keys: (process.env.VENICE_KEYS || '').split(',').filter(Boolean),
     priority: 7,
   },
+  openrouter: {
+    url: 'https://openrouter.ai/api/v1',
+    keys: (process.env.OPENROUTER_KEYS || '').split(',').filter(Boolean),
+    priority: 8,
+  },
+  llm7: {
+    url: 'https://api.llm7.io/v1',
+    keys: (process.env.LLM7_KEYS || '').split(',').filter(Boolean),
+    priority: 9,
+    noKeyRequired: true,
+  },
   huggingface: {
     url: 'https://api-inference.huggingface.co/v1',
     keys: (process.env.HUGGINGFACE_KEYS || '').split(',').filter(Boolean),
-    priority: 8,
+    priority: 10,
   },
   kira: {
     url: 'https://kiraai.vn/api/v1',
     keys: (process.env.KIRA_KEYS || '').split(',').filter(Boolean),
-    priority: 9,
+    priority: 11,
+  },
+  ovhcloud: {
+    url: 'https://api.ovhcloud.com/v1',
+    keys: (process.env.OVHCLOUD_KEYS || '').split(',').filter(Boolean),
+    priority: 12,
+    noKeyRequired: true,
   },
   google: {
     url: 'https://generativelanguage.googleapis.com/v1beta',
     keys: (process.env.GOOGLE_KEYS || '').split(',').filter(Boolean),
-    priority: 10,
+    priority: 13,
   },
   github: {
     url: 'https://models.inference.ai.azure.com/v1',
     keys: [], // Uses user's own GitHub token via X-GitHub-Token header
-    priority: 11,
+    priority: 14,
     useUserToken: true,
   },
 };
@@ -264,11 +281,14 @@ async function autoRoute(model, messages, stream, extraHeaders = {}) {
     cerebras: 'llama-3.3-70b',
     sambanova: 'DeepSeek-V3-0324',
     nvidia: 'meta/llama-3.3-70b-instruct',
+    openrouter: 'meta-llama/llama-3.3-70b-instruct',
     mistral: 'mistral-small-latest',
     cohere: 'command-r',
     venice: 'venice-uncensored',
+    llm7: 'meta-llama/llama-3.3-70b-instruct',
     huggingface: 'Qwen/Qwen3-8B',
     kira: 'kira-3.5-flash',
+    ovhcloud: 'meta-llama/Meta-Llama-3.3-70B-Instruct',
     google: 'gemini-2.5-flash',
   };
 
