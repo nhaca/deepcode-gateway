@@ -1,21 +1,38 @@
 const V1_MODELS = [
   { id: 'auto', name: 'DeepCode AI' },
+  // Groq
   { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B (Groq)' },
   { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B (Groq)' },
+  // Cerebras
   { id: 'llama-3.3-70b', name: 'Llama 3.3 70B (Cerebras)' },
   { id: 'llama-3.1-8b', name: 'Llama 3.1 8B (Cerebras)' },
+  // SambaNova
   { id: 'DeepSeek-V3-0324', name: 'DeepSeek V3 (SambaNova)' },
+  // Nvidia
   { id: 'meta/llama-3.3-70b-instruct', name: 'Llama 3.3 70B (Nvidia)' },
+  // OpenRouter
+  { id: 'meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 70B (OpenRouter)' },
+  { id: 'meta-llama/llama-3.1-8b-instruct', name: 'Llama 3.1 8B (OpenRouter)' },
+  { id: 'mistralai/mistral-7b-instruct', name: 'Mistral 7B (OpenRouter)' },
+  { id: 'qwen/qwen-2.5-72b-instruct', name: 'Qwen 2.5 72B (OpenRouter)' },
+  { id: 'google/gemma-2-9b-it', name: 'Gemma 2 9B (OpenRouter)' },
+  // Mistral
   { id: 'mistral-small-latest', name: 'Mistral Small (Mistral)' },
   { id: 'codestral-latest', name: 'Codestral (Mistral)' },
+  // Cohere
   { id: 'command-r', name: 'Command R (Cohere)' },
   { id: 'command-r-plus', name: 'Command R+ (Cohere)' },
+  // Venice
   { id: 'venice-uncensored', name: 'Venice Uncensored' },
-  { id: 'meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 70B (OpenRouter)' },
+  // LLM7
   { id: 'meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 70B (LLM7)' },
+  // HuggingFace
   { id: 'Qwen/Qwen3-8B', name: 'Qwen3 8B (HuggingFace)' },
+  // Kira
   { id: 'kira-3.5-flash', name: 'Kira 3.5 Flash' },
+  // OVHcloud
   { id: 'meta-llama/Meta-Llama-3.3-70B-Instruct', name: 'Llama 3.3 70B (OVHcloud)' },
+  // Google
   { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (Google)' },
   // GitHub Models (require user's GitHub token)
   { id: 'github:gpt-4o', name: 'GPT-4o (GitHub)', requiresGithub: true },

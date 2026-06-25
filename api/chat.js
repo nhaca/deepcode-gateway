@@ -22,25 +22,25 @@ const PROVIDERS = {
     keys: (process.env.NVIDIA_KEYS || '').split(',').filter(Boolean),
     priority: 4,
   },
+  openrouter: {
+    url: 'https://openrouter.ai/api/v1',
+    keys: (process.env.OPENROUTER_KEYS || '').split(',').filter(Boolean),
+    priority: 5,
+  },
   mistral: {
     url: 'https://api.mistral.ai/v1',
     keys: (process.env.MISTRAL_KEYS || '').split(',').filter(Boolean),
-    priority: 5,
+    priority: 6,
   },
   cohere: {
     url: 'https://api.cohere.com/v2',
     keys: (process.env.COHERE_KEYS || '').split(',').filter(Boolean),
-    priority: 6,
+    priority: 7,
     isOpenAICompat: false,
   },
   venice: {
     url: 'https://api.venice.ai/api/v1',
     keys: (process.env.VENICE_KEYS || '').split(',').filter(Boolean),
-    priority: 7,
-  },
-  openrouter: {
-    url: 'https://openrouter.ai/api/v1',
-    keys: (process.env.OPENROUTER_KEYS || '').split(',').filter(Boolean),
     priority: 8,
   },
   llm7: {
