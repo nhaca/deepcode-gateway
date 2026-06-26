@@ -148,19 +148,31 @@ function handleCors(res, req) {
 }
 
 // ===== Streaming response handler (shared) =====
-async function handleStreamResponse(res, response) {
+async function handleStreamResponse(res, response, apiKey, req) {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
+  let fullContent = '';
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      res.write(decoder.decode(value, { stream: true }));
+      const chunk = decoder.decode(value, { stream: true });
+      fullContent += chunk;
+      res.write(chunk);
     }
   } catch {}
+  // Deduct actual tokens after stream ends
+  if (apiKey && req?.body?.messages) {
+    const inputTokens = estimateMessagesTokens(req.body.messages);
+    const outputTokens = estimateTokens(fullContent);
+    const totalTokens = inputTokens + outputTokens;
+    const { useCredits, trackTokenUsage } = require('../lib/api-keys');
+    useCredits(apiKey, totalTokens).catch(() => {});
+    trackTokenUsage(apiKey, totalTokens).catch(() => {});
+  }
   return res.end();
 }
 
@@ -309,7 +321,8 @@ async function autoRoute(model, messages, stream, extraHeaders = {}) {
   let lastError;
   for (const provider of providerList) {
     try {
-      const providerModel = (model === 'auto') ? (AUTO_MODEL_MAP[provider] || 'auto') : model;
+      const isAuto = (model === 'auto' || model === 'deepcode-go' || model === 'deepcode-pro' || model === 'deepcode-ultra');
+      const providerModel = isAuto ? (AUTO_MODEL_MAP[provider] || 'auto') : model;
       return await callProviderWithRetry(provider, providerModel, messages, stream);
     } catch (e) {
       lastError = e.message;
@@ -320,14 +333,23 @@ async function autoRoute(model, messages, stream, extraHeaders = {}) {
 
 // ===== Stream or JSON response =====
 async function respondWithResult(res, result, stream, req, version, sec) {
+  const apiKey = req.headers['x-api-key'];
+
   if (stream && result?.body) {
-    return handleStreamResponse(res, result);
+    // Streaming: track tokens after stream ends
+    return handleStreamResponse(res, result, apiKey, req);
   }
-  // Track token usage (credits already deducted in handleChat)
+
+  // Non-streaming: deduct actual tokens (input + output)
   if (!stream && result?.choices?.[0]?.message?.content) {
-    const tokens = estimateMessagesTokens(req.body.messages) + estimateTokens(result.choices[0].message.content);
-    const { trackTokenUsage } = require('../lib/api-keys');
-    trackTokenUsage(req.headers['x-api-key'], tokens).catch(() => {});
+    const inputTokens = estimateMessagesTokens(req.body.messages);
+    const outputTokens = estimateTokens(result.choices[0].message.content);
+    const totalTokens = inputTokens + outputTokens;
+    if (apiKey) {
+      const { useCredits, trackTokenUsage } = require('../lib/api-keys');
+      useCredits(apiKey, totalTokens).catch(() => {});
+      trackTokenUsage(apiKey, totalTokens).catch(() => {});
+    }
   }
   return res.json(result);
 }
@@ -337,13 +359,7 @@ async function handleChat(req, res, version, specificModel) {
   const sec = await securityCheck(req, version);
   if (!sec.ok) return res.status(sec.status).json({ error: sec.error });
 
-  // Deduct credits upfront (works for both streaming and non-streaming)
   const apiKey = req.headers['x-api-key'];
-  if (apiKey && sec.creditCost) {
-    const { useCredits } = require('../lib/api-keys');
-    useCredits(apiKey, sec.creditCost).catch(() => {});
-  }
-
   const { model, messages, stream } = req.body;
 
   // v4: model-specific routing
