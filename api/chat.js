@@ -22,58 +22,63 @@ const PROVIDERS = {
     keys: (process.env.NVIDIA_KEYS || '').split(',').filter(Boolean),
     priority: 4,
   },
+  zenmux: {
+    url: 'https://zenmux.ai/api/v1',
+    keys: (process.env.ZENMUX_KEYS || '').split(',').filter(Boolean),
+    priority: 5,
+  },
   openrouter: {
     url: 'https://openrouter.ai/api/v1',
     keys: (process.env.OPENROUTER_KEYS || '').split(',').filter(Boolean),
-    priority: 5,
+    priority: 6,
   },
   mistral: {
     url: 'https://api.mistral.ai/v1',
     keys: (process.env.MISTRAL_KEYS || '').split(',').filter(Boolean),
-    priority: 6,
+    priority: 7,
   },
   cohere: {
     url: 'https://api.cohere.com/v2',
     keys: (process.env.COHERE_KEYS || '').split(',').filter(Boolean),
-    priority: 7,
+    priority: 8,
     isOpenAICompat: false,
   },
   venice: {
     url: 'https://api.venice.ai/api/v1',
     keys: (process.env.VENICE_KEYS || '').split(',').filter(Boolean),
-    priority: 8,
+    priority: 9,
   },
   llm7: {
     url: 'https://api.llm7.io/v1',
     keys: (process.env.LLM7_KEYS || '').split(',').filter(Boolean),
-    priority: 9,
+    priority: 10,
     noKeyRequired: true,
   },
   huggingface: {
     url: 'https://api-inference.huggingface.co/v1',
     keys: (process.env.HUGGINGFACE_KEYS || '').split(',').filter(Boolean),
-    priority: 10,
+    priority: 11,
   },
   kira: {
     url: 'https://kiraai.vn/api/v1',
     keys: (process.env.KIRA_KEYS || '').split(',').filter(Boolean),
-    priority: 11,
+    priority: 12,
   },
   ovhcloud: {
     url: 'https://api.ovhcloud.com/v1',
     keys: (process.env.OVHCLOUD_KEYS || '').split(',').filter(Boolean),
-    priority: 12,
+    priority: 13,
     noKeyRequired: true,
   },
   google: {
     url: 'https://generativelanguage.googleapis.com/v1beta',
     keys: (process.env.GOOGLE_KEYS || '').split(',').filter(Boolean),
-    priority: 13,
+    priority: 14,
   },
   github: {
     url: 'https://models.inference.ai.azure.com/v1',
     keys: [], // Uses user's own GitHub token via X-GitHub-Token header
-    priority: 14,
+    priority: 15,
     useUserToken: true,
   },
 };
