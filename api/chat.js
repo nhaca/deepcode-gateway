@@ -314,7 +314,7 @@ async function callProvider(providerName, model, messages, stream, extraHeaders 
     body = { model: apiModel || 'command-r', messages, stream: !!stream };
   } else {
     url = `${provider.url}/chat/completions`;
-    body = { model: apiModel, messages, stream: !!stream };
+    body = { model: apiModel, messages, stream: !!stream, temperature: 0.3 };
   }
 
   const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
