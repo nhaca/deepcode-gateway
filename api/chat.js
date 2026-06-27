@@ -19,7 +19,7 @@ const PROVIDERS = {
   },
   nvidia: {
     url: 'https://integrate.api.nvidia.com/v1',
-    keys: (process.env.NVIDIA_KEYS_2 || '').split(',').filter(Boolean),
+    keys: [...(process.env.NVIDIA_KEYS || '').split(','), ...(process.env.NVIDIA_KEYS_2 || '').split(',')].filter(Boolean),
     priority: 4,
   },
   zenmux: {
