@@ -245,8 +245,8 @@ async function handleStreamResponse(res, response, apiKey, req, isGoogle = false
     const outputTokens = estimateTokens(fullContent);
     const totalTokens = inputTokens + outputTokens;
     const { useCredits, trackTokenUsage } = require('../lib/api-keys');
-    useCredits(apiKey, totalTokens).catch(() => {});
-    trackTokenUsage(apiKey, totalTokens).catch(() => {});
+    try { await useCredits(apiKey, totalTokens); } catch {}
+    try { await trackTokenUsage(apiKey, totalTokens); } catch {}
   }
   return res.end();
 }
@@ -426,8 +426,8 @@ async function respondWithResult(res, result, stream, req, version, sec) {
     const totalTokens = inputTokens + outputTokens;
     if (apiKey) {
       const { useCredits, trackTokenUsage } = require('../lib/api-keys');
-      useCredits(apiKey, totalTokens).catch(() => {});
-      trackTokenUsage(apiKey, totalTokens).catch(() => {});
+      try { await useCredits(apiKey, totalTokens); } catch {}
+      try { await trackTokenUsage(apiKey, totalTokens); } catch {}
     }
   }
   return res.json(result);
