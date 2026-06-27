@@ -111,6 +111,11 @@ const V4_MODELS = {
   'deepseek-v4': { provider: 'nvidia', model: 'deepseek-ai/deepseek-v4-flash', name: 'DeepSeek V4' },
   'glm-5.1': { provider: 'nvidia', model: 'z-ai/glm-5.1', name: 'GLM 5.1' },
   'gemini-2.5-flash': { provider: 'google', model: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
+  'gemini-2.5-pro': { provider: 'google', model: 'gemini-2.5-pro-preview-06-05', name: 'Gemini 2.5 Pro' },
+  'gemini-3-flash': { provider: 'google', model: 'gemini-3-flash', name: 'Gemini 3 Flash' },
+  'gemini-3.5-flash': { provider: 'google', model: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash' },
+  'gemini-3.1-flash-lite': { provider: 'google', model: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite' },
+  'gemini-3.1-pro': { provider: 'google', model: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro' },
   'llama-4-maverick': { provider: 'openrouter', model: 'meta-llama/llama-4-maverick', name: 'Llama 4 Maverick' },
   'qwen-3-235b': { provider: 'openrouter', model: 'qwen/qwen3-235b-a22b', name: 'Qwen 3 235B' },
   'kira-3.5-flash': { provider: 'kira', model: 'kira-3.5-flash', name: 'Kira 3.5 Flash' },
@@ -126,6 +131,11 @@ const V4_TIER_RESTRICTED = {
   'deepseek-v4': ['pro', 'premium', 'business'],
   'glm-5.1': ['pro', 'premium', 'business'],
   'gemini-2.5-flash': ['pro', 'premium', 'business'],
+  'gemini-2.5-pro': ['pro', 'premium', 'business'],
+  'gemini-3-flash': ['pro', 'premium', 'business'],
+  'gemini-3.5-flash': ['pro', 'premium', 'business'],
+  'gemini-3.1-flash-lite': ['pro', 'premium', 'business'],
+  'gemini-3.1-pro': ['premium', 'business'],
   'llama-4-maverick': ['pro', 'premium', 'business'],
   'qwen-3-235b': ['pro', 'premium', 'business'],
   'kira-3.5-flash': ['pro', 'premium', 'business'],
@@ -153,7 +163,7 @@ function handleCors(res, req) {
 }
 
 // ===== Streaming response handler (shared) =====
-async function handleStreamResponse(res, response, apiKey, req) {
+async function handleStreamResponse(res, response, apiKey, req, isGoogle = false) {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -165,8 +175,26 @@ async function handleStreamResponse(res, response, apiKey, req) {
       const { done, value } = await reader.read();
       if (done) break;
       const chunk = decoder.decode(value, { stream: true });
-      fullContent += chunk;
-      res.write(chunk);
+      // Convert Google SSE to OpenAI-compatible format
+      if (isGoogle) {
+        const lines = chunk.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+              if (text) {
+                const openaiChunk = `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`;
+                fullContent += text;
+                res.write(openaiChunk);
+              }
+            } catch {}
+          }
+        }
+      } else {
+        fullContent += chunk;
+        res.write(chunk);
+      }
     }
   } catch {}
   // Deduct actual tokens after stream ends
@@ -237,7 +265,7 @@ async function callProvider(providerName, model, messages, stream, extraHeaders 
 
   let url, body;
   if (isGoogle) {
-    url = `${provider.url}/models/${apiModel}:generateContent?key=${key}`;
+    url = `${provider.url}/models/${apiModel}:generateContent?key=${key}${stream ? '&alt=sse' : ''}`;
     body = { contents: [{ parts: [{ text: messages.map(m => m.content).join('\n') }] }] };
   } else if (isCohere) {
     url = `${provider.url}/chat`;
@@ -254,7 +282,10 @@ async function callProvider(providerName, model, messages, stream, extraHeaders 
     throw new Error(`${providerName}: ${response.status} - ${err.error?.message || JSON.stringify(err)}`);
   }
 
-  if (stream && !isGoogle) return response;
+  if (stream && !isCohere) {
+    response._isGoogle = isGoogle;
+    return response;
+  }
 
   const data = await response.json();
   if (isGoogle) {
@@ -342,7 +373,7 @@ async function respondWithResult(res, result, stream, req, version, sec) {
 
   if (stream && result?.body) {
     // Streaming: track tokens after stream ends
-    return handleStreamResponse(res, result, apiKey, req);
+    return handleStreamResponse(res, result, apiKey, req, result._isGoogle);
   }
 
   // Non-streaming: deduct actual tokens (input + output)
