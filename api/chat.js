@@ -376,6 +376,20 @@ async function autoRoute(model, messages, stream, extraHeaders = {}, tools = nul
     }
   }
 
+  // Direct model → provider routing (for models sent by IDE that aren't in V4_MODELS)
+  const MODEL_ROUTE = {
+    'z-ai/glm-5.1': { provider: 'nvidia', model: 'z-ai/glm-5.1' },
+    'z-ai/glm-4.7-flash-free': { provider: 'nvidia', model: 'z-ai/glm-4.7-flash-free' },
+    'z-ai/glm-5.2-free': { provider: 'nvidia', model: 'z-ai/glm-5.2-free' },
+    'stepfun/step-3.7-flash-free': { provider: 'nvidia', model: 'stepfun-ai/step-3.7-flash' },
+    'step-3.7-flash': { provider: 'nvidia', model: 'stepfun-ai/step-3.7-flash' },
+    'step-3.5-flash': { provider: 'nvidia', model: 'stepfun-ai/step-3.5-flash' },
+  };
+  if (model && MODEL_ROUTE[model]) {
+    const route = MODEL_ROUTE[model];
+    return await callProviderWithRetry(route.provider, route.model, messages, stream, extraHeaders, 2, tools);
+  }
+
   // Map 'auto' to default model per provider
   const AUTO_MODEL_MAP = {
     groq: 'llama-3.3-70b-versatile',
