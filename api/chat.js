@@ -265,7 +265,7 @@ function estimateMessagesTokens(messages) {
 if (!global.__kiraState) global.__kiraState = { lastCallTime: 0 };
 const KIRA_MIN_DELAY_MS = 1000;
 
-async function callProvider(providerName, model, messages, stream, extraHeaders = {}) {
+async function callProvider(providerName, model, messages, stream, extraHeaders = {}, tools = null) {
   const provider = PROVIDERS[providerName];
   if (!provider) throw new Error(`Unknown provider: ${providerName}`);
 
@@ -315,6 +315,7 @@ async function callProvider(providerName, model, messages, stream, extraHeaders 
   } else {
     url = `${provider.url}/chat/completions`;
     body = { model: apiModel, messages, stream: !!stream, temperature: 0.3 };
+    if (tools && tools.length > 0) body.tools = tools;
   }
 
   const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
@@ -342,10 +343,10 @@ async function callProvider(providerName, model, messages, stream, extraHeaders 
 }
 
 // ===== Auto Route with retry =====
-async function callProviderWithRetry(providerName, model, messages, stream, extraHeaders = {}, maxRetries = 2) {
+async function callProviderWithRetry(providerName, model, messages, stream, extraHeaders = {}, maxRetries = 2, tools = null) {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      return await callProvider(providerName, model, messages, stream, extraHeaders);
+      return await callProvider(providerName, model, messages, stream, extraHeaders, tools);
     } catch (e) {
       const isRetryable = e.message.includes('429') || e.message.includes('500') || e.message.includes('502') || e.message.includes('503');
       if (isRetryable && attempt < maxRetries) {
@@ -358,11 +359,11 @@ async function callProviderWithRetry(providerName, model, messages, stream, extr
   }
 }
 
-async function autoRoute(model, messages, stream, extraHeaders = {}) {
+async function autoRoute(model, messages, stream, extraHeaders = {}, tools = null) {
   // GitHub Models: route directly to GitHub provider
   if (model && model.startsWith('github:')) {
     const githubModel = model.replace('github:', '');
-    return await callProviderWithRetry('github', githubModel, messages, stream, extraHeaders);
+    return await callProviderWithRetry('github', githubModel, messages, stream, extraHeaders, 2, tools);
   }
 
   // Prefixed models: openrouter:, llm7:, huggingface:, ovhcloud:
@@ -371,7 +372,7 @@ async function autoRoute(model, messages, stream, extraHeaders = {}) {
     const providerName = prefix.toLowerCase();
     const modelName = modelParts.join(':');
     if (PROVIDERS[providerName]) {
-      return await callProviderWithRetry(providerName, modelName, messages, stream, extraHeaders);
+      return await callProviderWithRetry(providerName, modelName, messages, stream, extraHeaders, 2, tools);
     }
   }
 
@@ -401,7 +402,7 @@ async function autoRoute(model, messages, stream, extraHeaders = {}) {
     try {
       const isAuto = (model === 'auto' || model === 'deepcode-go' || model === 'deepcode-pro' || model === 'deepcode-ultra');
       const providerModel = isAuto ? (AUTO_MODEL_MAP[provider] || 'auto') : model;
-      return await callProviderWithRetry(provider, providerModel, messages, stream);
+      return await callProviderWithRetry(provider, providerModel, messages, stream, {}, 2, tools);
     } catch (e) {
       lastError = e.message;
     }
@@ -438,7 +439,7 @@ async function handleChat(req, res, version, specificModel) {
   if (!sec.ok) return res.status(sec.status).json({ error: sec.error });
 
   const apiKey = req.headers['x-api-key'];
-  const { model, messages, stream } = req.body;
+  const { model, messages, stream, tools } = req.body;
 
   // v4: model-specific routing
   if (version === 4 && specificModel) {
@@ -455,7 +456,7 @@ async function handleChat(req, res, version, specificModel) {
     if (githubToken) extraHeaders['X-GitHub-Token'] = githubToken;
 
     try {
-      const result = await callProvider(modelConfig.provider, modelConfig.model, messages, stream, extraHeaders);
+      const result = await callProvider(modelConfig.provider, modelConfig.model, messages, stream, extraHeaders, tools);
       return respondWithResult(res, result, stream, req, version, sec);
     } catch (e) {
       return res.status(500).json({ error: e.message });
@@ -467,7 +468,7 @@ async function handleChat(req, res, version, specificModel) {
     const reqModel = model || 'auto';
     if (V4_MODELS[reqModel]) return handleChat(req, res, 4, reqModel);
     try {
-      const result = await autoRoute(reqModel, messages, stream);
+      const result = await autoRoute(reqModel, messages, stream, {}, tools);
       return respondWithResult(res, result, stream, req, version, sec);
     } catch (e) {
       return res.status(500).json({ error: e.message });
@@ -486,7 +487,7 @@ async function handleChat(req, res, version, specificModel) {
   if (version === 2) {
     const proModel = model || 'z-ai/glm-4.7-flash-free';
     try {
-      const result = await autoRoute(proModel, messages, stream, extraHeaders);
+      const result = await autoRoute(proModel, messages, stream, extraHeaders, tools);
       return respondWithResult(res, result, stream, req, version, sec);
     } catch (e) {
       return res.status(500).json({ error: e.message });
@@ -496,7 +497,7 @@ async function handleChat(req, res, version, specificModel) {
   if (version === 3) {
     const ultraModel = model || 'z-ai/glm-5.1';
     try {
-      const result = await autoRoute(ultraModel, messages, stream, extraHeaders);
+      const result = await autoRoute(ultraModel, messages, stream, extraHeaders, tools);
       return respondWithResult(res, result, stream, req, version, sec);
     } catch (e) {
       return res.status(500).json({ error: e.message });
@@ -505,7 +506,7 @@ async function handleChat(req, res, version, specificModel) {
 
   // v1: DeepCode Go (default, auto model)
   try {
-    const result = await autoRoute(apiModel, messages, stream, extraHeaders);
+    const result = await autoRoute(apiModel, messages, stream, extraHeaders, tools);
     return respondWithResult(res, result, stream, req, version, sec);
   } catch (e) {
     return res.status(500).json({ error: e.message });
