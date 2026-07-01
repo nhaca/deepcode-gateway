@@ -141,6 +141,14 @@ const V4_MODELS = {
   'qwen-3-235b': { provider: 'openrouter', model: 'qwen/qwen3-235b-a22b', name: 'Qwen 3 235B' },
   'kira-3.5-flash': { provider: 'kira', model: 'kira-3.5-flash', name: 'Kira 3.5 Flash' },
   'kira-2.5-pro': { provider: 'kira', model: 'kira-2.5-pro', name: 'Kira 2.5 Pro' },
+  // Direct models — skip autoRoute, route to specific provider
+  'venice-uncensored': { provider: 'venice', model: 'venice-uncensored', name: 'Venice Uncensored' },
+  'mistral-small-latest': { provider: 'mistral', model: 'mistral-small-latest', name: 'Mistral Small' },
+  'mistral-large-latest': { provider: 'mistral', model: 'mistral-large-latest', name: 'Mistral Large' },
+  'codestral-latest': { provider: 'mistral', model: 'codestral-latest', name: 'Codestral' },
+  'open-mistral-nemo': { provider: 'mistral', model: 'open-mistral-nemo', name: 'Mistral Nemo' },
+  'command-r': { provider: 'cohere', model: 'command-r', name: 'Command R' },
+  'command-r-plus': { provider: 'cohere', model: 'command-r-plus', name: 'Command R+' },
 };
 
 // v4 tier restrictions
@@ -265,7 +273,7 @@ function estimateMessagesTokens(messages) {
 if (!global.__kiraState) global.__kiraState = { lastCallTime: 0 };
 const KIRA_MIN_DELAY_MS = 1000;
 
-async function callProvider(providerName, model, messages, stream, extraHeaders = {}, tools = null) {
+async function callProvider(providerName, model, messages, stream, extraHeaders = {}, tools = null, reasoningOptions = {}) {
   const provider = PROVIDERS[providerName];
   if (!provider) throw new Error(`Unknown provider: ${providerName}`);
 
@@ -285,6 +293,10 @@ async function callProvider(providerName, model, messages, stream, extraHeaders 
     const apiModel = model || 'gpt-4o';
     const url = `${provider.url}/chat/completions`;
     const body = { model: apiModel, messages, stream: !!stream };
+    // Forward reasoning/thinking options from client
+    if (reasoningOptions.reasoning_effort) body.reasoning_effort = reasoningOptions.reasoning_effort;
+    if (reasoningOptions.reasoning) body.reasoning = reasoningOptions.reasoning;
+    if (reasoningOptions.chat_template_kwargs) body.chat_template_kwargs = reasoningOptions.chat_template_kwargs;
     const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
@@ -316,6 +328,10 @@ async function callProvider(providerName, model, messages, stream, extraHeaders 
     url = `${provider.url}/chat/completions`;
     body = { model: apiModel, messages, stream: !!stream, temperature: 0.3 };
     if (tools && tools.length > 0) body.tools = tools;
+    // Forward reasoning/thinking options from client
+    if (reasoningOptions.reasoning_effort) body.reasoning_effort = reasoningOptions.reasoning_effort;
+    if (reasoningOptions.reasoning) body.reasoning = reasoningOptions.reasoning;
+    if (reasoningOptions.chat_template_kwargs) body.chat_template_kwargs = reasoningOptions.chat_template_kwargs;
   }
 
   const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
@@ -343,10 +359,10 @@ async function callProvider(providerName, model, messages, stream, extraHeaders 
 }
 
 // ===== Auto Route with retry =====
-async function callProviderWithRetry(providerName, model, messages, stream, extraHeaders = {}, maxRetries = 2, tools = null) {
+async function callProviderWithRetry(providerName, model, messages, stream, extraHeaders = {}, maxRetries = 2, tools = null, reasoningOptions = {}) {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      return await callProvider(providerName, model, messages, stream, extraHeaders, tools);
+      return await callProvider(providerName, model, messages, stream, extraHeaders, tools, reasoningOptions);
     } catch (e) {
       const isRetryable = e.message.includes('429') || e.message.includes('500') || e.message.includes('502') || e.message.includes('503');
       if (isRetryable && attempt < maxRetries) {
@@ -359,11 +375,11 @@ async function callProviderWithRetry(providerName, model, messages, stream, extr
   }
 }
 
-async function autoRoute(model, messages, stream, extraHeaders = {}, tools = null) {
+async function autoRoute(model, messages, stream, extraHeaders = {}, tools = null, reasoningOptions = {}) {
   // GitHub Models: route directly to GitHub provider
   if (model && model.startsWith('github:')) {
     const githubModel = model.replace('github:', '');
-    return await callProviderWithRetry('github', githubModel, messages, stream, extraHeaders, 2, tools);
+    return await callProviderWithRetry('github', githubModel, messages, stream, extraHeaders, 2, tools, reasoningOptions);
   }
 
   // Prefixed models: openrouter:, llm7:, huggingface:, ovhcloud:
@@ -372,7 +388,7 @@ async function autoRoute(model, messages, stream, extraHeaders = {}, tools = nul
     const providerName = prefix.toLowerCase();
     const modelName = modelParts.join(':');
     if (PROVIDERS[providerName]) {
-      return await callProviderWithRetry(providerName, modelName, messages, stream, extraHeaders, 2, tools);
+      return await callProviderWithRetry(providerName, modelName, messages, stream, extraHeaders, 2, tools, reasoningOptions);
     }
   }
 
@@ -387,7 +403,7 @@ async function autoRoute(model, messages, stream, extraHeaders = {}, tools = nul
   };
   if (model && MODEL_ROUTE[model]) {
     const route = MODEL_ROUTE[model];
-    return await callProviderWithRetry(route.provider, route.model, messages, stream, extraHeaders, 2, tools);
+    return await callProviderWithRetry(route.provider, route.model, messages, stream, extraHeaders, 2, tools, reasoningOptions);
   }
 
   // Map 'auto' to default model per provider
@@ -416,7 +432,7 @@ async function autoRoute(model, messages, stream, extraHeaders = {}, tools = nul
     try {
       const isAuto = (model === 'auto' || model === 'deepcode-go' || model === 'deepcode-pro' || model === 'deepcode-ultra');
       const providerModel = isAuto ? (AUTO_MODEL_MAP[provider] || 'auto') : model;
-      return await callProviderWithRetry(provider, providerModel, messages, stream, {}, 2, tools);
+      return await callProviderWithRetry(provider, providerModel, messages, stream, {}, 2, tools, reasoningOptions);
     } catch (e) {
       lastError = e.message;
     }
@@ -454,6 +470,11 @@ async function handleChat(req, res, version, specificModel) {
 
   const apiKey = req.headers['x-api-key'];
   const { model, messages, stream, tools } = req.body;
+  const reasoningOptions = {
+    reasoning_effort: req.body.reasoning_effort,
+    reasoning: req.body.reasoning,
+    chat_template_kwargs: req.body.chat_template_kwargs,
+  };
 
   // v4: model-specific routing
   if (version === 4 && specificModel) {
@@ -470,7 +491,7 @@ async function handleChat(req, res, version, specificModel) {
     if (githubToken) extraHeaders['X-GitHub-Token'] = githubToken;
 
     try {
-      const result = await callProvider(modelConfig.provider, modelConfig.model, messages, stream, extraHeaders, tools);
+      const result = await callProvider(modelConfig.provider, modelConfig.model, messages, stream, extraHeaders, tools, reasoningOptions);
       return respondWithResult(res, result, stream, req, version, sec);
     } catch (e) {
       return res.status(500).json({ error: e.message });
@@ -482,7 +503,7 @@ async function handleChat(req, res, version, specificModel) {
     const reqModel = model || 'auto';
     if (V4_MODELS[reqModel]) return handleChat(req, res, 4, reqModel);
     try {
-      const result = await autoRoute(reqModel, messages, stream, {}, tools);
+      const result = await autoRoute(reqModel, messages, stream, {}, tools, reasoningOptions);
       return respondWithResult(res, result, stream, req, version, sec);
     } catch (e) {
       return res.status(500).json({ error: e.message });
@@ -498,10 +519,21 @@ async function handleChat(req, res, version, specificModel) {
   const extraHeaders = {};
   if (githubToken) extraHeaders['X-GitHub-Token'] = githubToken;
 
+  // All versions: check V4_MODELS first for model-specific routing
+  if (apiModel && V4_MODELS[apiModel]) {
+    const modelConfig = V4_MODELS[apiModel];
+    try {
+      const result = await callProvider(modelConfig.provider, modelConfig.model, messages, stream, extraHeaders, tools, reasoningOptions);
+      return respondWithResult(res, result, stream, req, version, sec);
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
   if (version === 2) {
     const proModel = model || 'z-ai/glm-4.7-flash-free';
     try {
-      const result = await autoRoute(proModel, messages, stream, extraHeaders, tools);
+      const result = await autoRoute(proModel, messages, stream, extraHeaders, tools, reasoningOptions);
       return respondWithResult(res, result, stream, req, version, sec);
     } catch (e) {
       return res.status(500).json({ error: e.message });
@@ -511,7 +543,7 @@ async function handleChat(req, res, version, specificModel) {
   if (version === 3) {
     const ultraModel = model || 'z-ai/glm-5.1';
     try {
-      const result = await autoRoute(ultraModel, messages, stream, extraHeaders, tools);
+      const result = await autoRoute(ultraModel, messages, stream, extraHeaders, tools, reasoningOptions);
       return respondWithResult(res, result, stream, req, version, sec);
     } catch (e) {
       return res.status(500).json({ error: e.message });
@@ -520,7 +552,7 @@ async function handleChat(req, res, version, specificModel) {
 
   // v1: DeepCode Go (default, auto model)
   try {
-    const result = await autoRoute(apiModel, messages, stream, extraHeaders, tools);
+    const result = await autoRoute(apiModel, messages, stream, extraHeaders, tools, reasoningOptions);
     return respondWithResult(res, result, stream, req, version, sec);
   } catch (e) {
     return res.status(500).json({ error: e.message });
@@ -601,6 +633,43 @@ module.exports = async function handler(req, res) {
   let specificModel = null;
   if (pathParts[0] && pathParts[0].startsWith('v')) version = parseInt(pathParts[0].substring(1)) || 1;
   if (pathParts.length > 3 && pathParts[0].startsWith('v')) specificModel = pathParts[3];
+
+  // Direct model route: /chat/completions/{modelName} (no version prefix)
+  // IDE sends specific models here to skip autoRoute and go straight to provider
+  if (pathParts[0] === 'chat' && pathParts[1] === 'completions' && pathParts.length >= 3) {
+    const directModel = pathParts[2];
+    if (directModel && V4_MODELS[directModel]) {
+      const modelConfig = V4_MODELS[directModel];
+      const sec = await securityCheck(req, 4);
+      if (!sec.ok) return res.status(sec.status).json({ error: sec.error });
+
+      const githubToken = req.headers['x-github-token'];
+      const extraHeaders = {};
+      if (githubToken) extraHeaders['X-GitHub-Token'] = githubToken;
+
+      const reasoningOptions = {
+        reasoning_effort: req.body.reasoning_effort,
+        reasoning: req.body.reasoning,
+        chat_template_kwargs: req.body.chat_template_kwargs,
+      };
+
+      try {
+        const result = await callProvider(modelConfig.provider, modelConfig.model, req.body.messages, req.body.stream, extraHeaders, req.body.tools, reasoningOptions);
+        return respondWithResult(res, result, req.body.stream, req, 4, sec);
+      } catch (e) {
+        return res.status(500).json({ error: e.message });
+      }
+    }
+    // Unknown direct model — fallback to autoRoute
+    const sec = await securityCheck(req, 1);
+    if (!sec.ok) return res.status(sec.status).json({ error: sec.error });
+    try {
+      const result = await autoRoute(directModel, req.body.messages, req.body.stream, {}, req.body.tools, {});
+      return respondWithResult(res, result, req.body.stream, req, 1, sec);
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
 
   return handleChat(req, res, version, specificModel);
 };
