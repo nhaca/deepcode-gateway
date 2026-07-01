@@ -192,6 +192,11 @@ const V4_TIER_RESTRICTED = {
   'kira-2.5-pro': ['pro', 'premium', 'business'],
 };
 
+// v5 models — ZenMux free tier (Claude Sonnet 5)
+const V5_MODELS = {
+  'claude-sonnet-5-free': { provider: 'zenmux', model: 'anthropic/claude-sonnet-5-free', name: 'Claude Sonnet 5 Free' },
+};
+
 // ===== Allowed CORS origins =====
 const ALLOWED_ORIGINS = [
   'electron://localhost',
@@ -510,6 +515,21 @@ async function handleChat(req, res, version, specificModel) {
     }
   }
 
+  // v5: ZenMux free models
+  if (version === 5) {
+    const reqModel = model || 'claude-sonnet-5-free';
+    if (V5_MODELS[reqModel]) {
+      const modelConfig = V5_MODELS[reqModel];
+      try {
+        const result = await callProvider(modelConfig.provider, modelConfig.model, messages, stream, {}, tools, reasoningOptions);
+        return respondWithResult(res, result, stream, req, version, sec);
+      } catch (e) {
+        return res.status(500).json({ error: e.message });
+      }
+    }
+    return res.status(400).json({ error: `Unknown v5 model: ${reqModel}. Available: ${Object.keys(V5_MODELS).join(', ')}` });
+  }
+
   // v1/v2/v3: standard routing
   const versionConfig = VERSION_MODELS[version];
   const apiModel = model || versionConfig.defaultModel;
@@ -575,7 +595,14 @@ function handleModels(req, res) {
     tiers: V4_TIER_RESTRICTED[id] || [],
   }));
 
-  return res.json({ models, v4Models, providers: Object.keys(PROVIDERS) });
+  const v5Models = Object.entries(V5_MODELS).map(([id, m]) => ({
+    id,
+    name: m.name,
+    provider: m.provider,
+    model: m.model,
+  }));
+
+  return res.json({ models, v4Models, v5Models, providers: Object.keys(PROVIDERS) });
 }
 
 // ===== Health Check Handler =====
