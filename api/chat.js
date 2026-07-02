@@ -1,0 +1,774 @@
+const { securityCheck, getClientIp, getAuditLog, getSecurityStats } = require('../lib/security');
+
+// ===== Provider Config =====
+const PROVIDERS = {
+  groq: {
+    url: 'https://api.groq.com/openai/v1',
+    keys: (process.env.GROQ_KEYS || '').split(',').filter(Boolean),
+    priority: 1,
+  },
+  cerebras: {
+    url: 'https://api.cerebras.ai/v1',
+    keys: (process.env.CEREBRAS_KEYS || '').split(',').filter(Boolean),
+    priority: 2,
+  },
+  sambanova: {
+    url: 'https://api.sambanova.ai/v1',
+    keys: (process.env.SAMBANOVA_KEYS || '').split(',').filter(Boolean),
+    priority: 3,
+  },
+  nvidia: {
+    url: 'https://integrate.api.nvidia.com/v1',
+    keys: [...(process.env.NVIDIA_KEYS || '').split(','), ...(process.env.NVIDIA_KEYS_2 || '').split(',')].filter(Boolean),
+    priority: 4,
+  },
+  zenmux: {
+    url: 'https://zenmux.ai/api/v1',
+    keys: (process.env.ZENMUX_KEYS || '').split(',').filter(Boolean),
+    priority: 5,
+  },
+  openrouter: {
+    url: 'https://openrouter.ai/api/v1',
+    keys: (process.env.OPENROUTER_KEYS || '').split(',').filter(Boolean),
+    priority: 6,
+  },
+  mistral: {
+    url: 'https://api.mistral.ai/v1',
+    keys: (process.env.MISTRAL_KEYS || '').split(',').filter(Boolean),
+    priority: 7,
+  },
+  cohere: {
+    url: 'https://api.cohere.com/v2',
+    keys: (process.env.COHERE_KEYS || '').split(',').filter(Boolean),
+    priority: 8,
+    isOpenAICompat: false,
+  },
+  venice: {
+    url: 'https://api.venice.ai/api/v1',
+    keys: (process.env.VENICE_KEYS || '').split(',').filter(Boolean),
+    priority: 9,
+  },
+  llm7: {
+    url: 'https://api.llm7.io/v1',
+    keys: (process.env.LLM7_KEYS || '').split(',').filter(Boolean),
+    priority: 14,
+    noKeyRequired: true,
+  },
+  huggingface: {
+    url: 'https://api-inference.huggingface.co/v1',
+    keys: (process.env.HUGGINGFACE_KEYS || '').split(',').filter(Boolean),
+    priority: 15,
+  },
+  glm5: {
+    url: 'https://glm5.app/api/v1',
+    keys: (process.env.GLM5_KEYS || '').split(',').filter(Boolean),
+    priority: 12,
+  },
+  comet: {
+    url: 'https://api.cometapi.com/v1',
+    keys: (process.env.COMET_KEYS || '').split(',').filter(Boolean),
+    priority: 1,
+  },
+  kira: {
+    url: 'https://kiraai.vn/api/v1',
+    keys: (process.env.KIRA_KEYS || '').split(',').filter(Boolean),
+    priority: 13,
+  },
+  ovhcloud: {
+    url: 'https://api.ovhcloud.com/v1',
+    keys: (process.env.OVHCLOUD_KEYS || '').split(',').filter(Boolean),
+    priority: 16,
+    noKeyRequired: true,
+  },
+  google: {
+    url: 'https://generativelanguage.googleapis.com/v1beta',
+    keys: (process.env.GOOGLE_KEYS || '').split(',').filter(Boolean),
+    priority: 17,
+  },
+  github: {
+    url: 'https://models.inference.ai.azure.com/v1',
+    keys: [], // Uses user's own GitHub token via X-GitHub-Token header
+    priority: 18,
+    useUserToken: true,
+  },
+};
+
+const KEY_INDEX = {};
+for (const k of Object.keys(PROVIDERS)) KEY_INDEX[k] = 0;
+
+function getNextKey(provider) {
+  const keys = PROVIDERS[provider]?.keys || [];
+  if (keys.length === 0) return null;
+  const key = keys[KEY_INDEX[provider] % keys.length];
+  KEY_INDEX[provider] = (KEY_INDEX[provider] + 1) % keys.length;
+  return key;
+}
+
+// ===== Version → Model Mapping =====
+const VERSION_MODELS = {
+  1: { defaultModel: 'auto', label: 'DeepCode' },
+  2: { defaultModel: 'z-ai/glm-5.1', label: 'DeepCode Pro' },
+  3: { defaultModel: 'z-ai/glm-5.2-free', label: 'DeepCode Ultra' },
+  4: { defaultModel: 'auto', label: 'DeepCode Server 2' },
+};
+
+// v4 model-specific routing
+const V4_MODELS = {
+  'claude-haiku-4-5': { provider: 'comet', model: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
+  'claude-opus-4-7': { provider: 'comet', model: 'claude-opus-4-7', name: 'Claude Opus 4.7' },
+  'claude-opus-4-8': { provider: 'comet', model: 'claude-opus-4-8', name: 'Claude Opus 4.8' },
+  'claude-sonnet-5': { provider: 'comet', model: 'claude-sonnet-5', name: 'Claude Sonnet 5' },
+  'claude-sonnet-4': { provider: 'openrouter', model: 'anthropic/claude-sonnet-4', name: 'Claude Sonnet 4' },
+  'gpt-5': { provider: 'openrouter', model: 'openai/gpt-5', name: 'GPT-5' },
+  'gpt-4.1': { provider: 'openrouter', model: 'openai/gpt-4.1', name: 'GPT-4.1' },
+  'deepseek-v4': { provider: 'nvidia', model: 'deepseek-ai/deepseek-v4-flash', name: 'DeepSeek V4 Flash' },
+  'deepseek-v4-pro': { provider: 'nvidia', model: 'deepseek-ai/deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
+  'glm-5.1': { provider: 'nvidia', model: 'z-ai/glm-5.1', name: 'GLM 5.1' },
+  'nemotron-3-ultra': { provider: 'nvidia', model: 'nvidia/nemotron-3-ultra-550b-a55b', name: 'Nemotron 3 Ultra' },
+  'nemotron-3-super': { provider: 'nvidia', model: 'nvidia/nemotron-3-super-120b-a12b', name: 'Nemotron 3 Super' },
+  'qwen3.5-397b': { provider: 'nvidia', model: 'qwen/qwen3.5-397b-a17b', name: 'Qwen 3.5 397B' },
+  'qwen3.5-122b': { provider: 'nvidia', model: 'qwen/qwen3.5-122b-a10b', name: 'Qwen 3.5 122B' },
+  'mistral-medium': { provider: 'nvidia', model: 'mistralai/mistral-medium-3.5-128b', name: 'Mistral Medium 3.5' },
+  'mistral-small': { provider: 'nvidia', model: 'mistralai/mistral-small-4-119b-2603', name: 'Mistral Small 4' },
+  'minimax-m3': { provider: 'nvidia', model: 'minimaxai/minimax-m3', name: 'MiniMax M3' },
+  'minimax-m2.7': { provider: 'nvidia', model: 'minimaxai/minimax-m2.7', name: 'MiniMax M2.7' },
+  'kimi-k2.6': { provider: 'nvidia', model: 'moonshotai/kimi-k2.6', name: 'Kimi K2.6' },
+  'gemma-4-31b': { provider: 'nvidia', model: 'google/gemma-4-31b-it', name: 'Gemma 4 31B' },
+  'phi-4-mini': { provider: 'nvidia', model: 'microsoft/phi-4-mini-instruct', name: 'Phi-4 Mini' },
+  'step-3.7-flash': { provider: 'nvidia', model: 'stepfun-ai/step-3.7-flash', name: 'Step 3.7 Flash' },
+  'step-3.5-flash': { provider: 'nvidia', model: 'stepfun-ai/step-3.5-flash', name: 'Step 3.5 Flash' },
+  'mistral-nemotron': { provider: 'nvidia', model: 'mistralai/mistral-nemotron', name: 'Mistral Nemotron' },
+  'llama-4-maverick-nvidia': { provider: 'nvidia', model: 'meta/llama-4-maverick-17b-128e-instruct', name: 'Llama 4 Maverick (NVIDIA)' },
+  'llama-3.3-nemotron-super': { provider: 'nvidia', model: 'nvidia/llama-3.3-nemotron-super-49b-v1', name: 'Llama 3.3 Nemotron Super' },
+  'qwen3-next-80b': { provider: 'nvidia', model: 'qwen/qwen3-next-80b-a3b-instruct', name: 'Qwen3 Next 80B' },
+  'nemotron-nano-9b': { provider: 'nvidia', model: 'nvidia/nvidia-nemotron-nano-9b-v2', name: 'Nemotron Nano 9B' },
+  'gemma-3n-e4b': { provider: 'nvidia', model: 'google/gemma-3n-e4b-it', name: 'Gemma 3n E4B' },
+  'gemma-2-2b': { provider: 'nvidia', model: 'google/gemma-2-2b-it', name: 'Gemma 2 2B' },
+  'gemini-2.5-flash': { provider: 'google', model: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
+  'gemini-2.5-pro': { provider: 'google', model: 'gemini-2.5-pro-preview-06-05', name: 'Gemini 2.5 Pro' },
+  'gemini-3-flash': { provider: 'google', model: 'gemini-3-flash', name: 'Gemini 3 Flash' },
+  'gemini-3.5-flash': { provider: 'google', model: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash' },
+  'gemini-3.1-flash-lite': { provider: 'google', model: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite' },
+  'gemini-3.1-pro': { provider: 'google', model: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro' },
+  'llama-4-maverick': { provider: 'openrouter', model: 'meta-llama/llama-4-maverick', name: 'Llama 4 Maverick' },
+  'qwen-3-235b': { provider: 'openrouter', model: 'qwen/qwen3-235b-a22b', name: 'Qwen 3 235B' },
+  'kira-3.5-flash': { provider: 'kira', model: 'kira-3.5-flash', name: 'Kira 3.5 Flash' },
+  'kira-2.5-pro': { provider: 'kira', model: 'kira-2.5-pro', name: 'Kira 2.5 Pro' },
+  // Direct models — skip autoRoute, route to specific provider
+  'venice-uncensored': { provider: 'venice', model: 'venice-uncensored', name: 'Venice Uncensored' },
+  'mistral-small-latest': { provider: 'mistral', model: 'mistral-small-latest', name: 'Mistral Small' },
+  'mistral-large-latest': { provider: 'mistral', model: 'mistral-large-latest', name: 'Mistral Large' },
+  'codestral-latest': { provider: 'mistral', model: 'codestral-latest', name: 'Codestral' },
+  'open-mistral-nemo': { provider: 'mistral', model: 'open-mistral-nemo', name: 'Mistral Nemo' },
+  'command-r': { provider: 'cohere', model: 'command-r', name: 'Command R' },
+  'command-r-plus': { provider: 'cohere', model: 'command-r-plus', name: 'Command R+' },
+};
+
+// v4 tier restrictions
+const V4_TIER_RESTRICTED = {
+  'claude-haiku-4-5': ['free', 'pro', 'premium', 'business'],
+  'claude-opus-4-7': ['pro', 'premium', 'business'],
+  'claude-opus-4-8': ['pro', 'premium', 'business'],
+  'claude-sonnet-5': ['pro', 'premium', 'business'],
+  'claude-sonnet-4': ['pro', 'premium', 'business'],
+  'gpt-5': ['premium', 'business'],
+  'gpt-4.1': ['pro', 'premium', 'business'],
+  'deepseek-v4': ['pro', 'premium', 'business'],
+  'deepseek-v4-pro': ['premium', 'business'],
+  'glm-5.1': ['pro', 'premium', 'business'],
+  'nemotron-3-ultra': ['pro', 'premium', 'business'],
+  'nemotron-3-super': ['pro', 'premium', 'business'],
+  'qwen3.5-397b': ['pro', 'premium', 'business'],
+  'qwen3.5-122b': ['pro', 'premium', 'business'],
+  'mistral-medium': ['pro', 'premium', 'business'],
+  'mistral-small': ['pro', 'premium', 'business'],
+  'minimax-m3': ['pro', 'premium', 'business'],
+  'minimax-m2.7': ['pro', 'premium', 'business'],
+  'kimi-k2.6': ['premium', 'business'],
+  'gemma-4-31b': ['pro', 'premium', 'business'],
+  'phi-4-mini': ['pro', 'premium', 'business'],
+  'step-3.7-flash': ['pro', 'premium', 'business'],
+  'step-3.5-flash': ['pro', 'premium', 'business'],
+  'mistral-nemotron': ['pro', 'premium', 'business'],
+  'llama-4-maverick-nvidia': ['pro', 'premium', 'business'],
+  'llama-3.3-nemotron-super': ['pro', 'premium', 'business'],
+  'qwen3-next-80b': ['pro', 'premium', 'business'],
+  'nemotron-nano-9b': ['pro', 'premium', 'business'],
+  'gemma-3n-e4b': ['pro', 'premium', 'business'],
+  'gemma-2-2b': ['pro', 'premium', 'business'],
+  'gemini-2.5-flash': ['pro', 'premium', 'business'],
+  'gemini-2.5-pro': ['pro', 'premium', 'business'],
+  'gemini-3-flash': ['pro', 'premium', 'business'],
+  'gemini-3.5-flash': ['pro', 'premium', 'business'],
+  'gemini-3.1-flash-lite': ['pro', 'premium', 'business'],
+  'gemini-3.1-pro': ['premium', 'business'],
+  'llama-4-maverick': ['pro', 'premium', 'business'],
+  'qwen-3-235b': ['pro', 'premium', 'business'],
+  'kira-3.5-flash': ['pro', 'premium', 'business'],
+  'kira-2.5-pro': ['pro', 'premium', 'business'],
+};
+
+// v5 models — ZenMux free tier (Claude Sonnet 5)
+const V5_MODELS = {
+  'claude-sonnet-5-free': { provider: 'zenmux', model: 'anthropic/claude-sonnet-5-free', name: 'Claude Sonnet 5 Free' },
+};
+
+// v6 models — GLM5.app free tier (GLM 5.2)
+const V6_MODELS = {
+  'glm-5.2-free': { provider: 'glm5', model: 'glm-5.2', name: 'GLM 5.2 Free' },
+};
+
+// ===== Allowed CORS origins =====
+const ALLOWED_ORIGINS = [
+  'electron://localhost',
+  'capacitor://localhost',
+  'http://localhost',
+  'https://deepcode.vercel.app',
+];
+
+// ===== CORS Handler =====
+function handleCors(res, req) {
+  const origin = req.headers['origin'] || '';
+  const allowed = ALLOWED_ORIGINS.some(o => origin.startsWith(o)) || origin === '';
+  res.setHeader('Access-Control-Allow-Origin', allowed ? (origin || '*') : ALLOWED_ORIGINS[0]);
+  res.setHeader('Access-Control-Allow-Headers',
+    'Content-Type, Authorization, X-Timestamp, X-Signature, X-Device-ID, X-Platform, X-Version, X-User-Email, X-User-Provider, X-User-Tier, X-GitHub-Token, X-Binding-Signature, X-Binding-Timestamp, X-Login-IP, X-Api-Key, X-Admin-Secret, X-Session-Token'
+  );
+  if (req.method === 'OPTIONS') { res.status(200).end(); return true; }
+  return false;
+}
+
+// ===== Streaming response handler (shared) =====
+async function handleStreamResponse(res, response, apiKey, req, isGoogle = false) {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let fullContent = '';
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      // Convert Google SSE to OpenAI-compatible format
+      if (isGoogle) {
+        const lines = chunk.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+              if (text) {
+                const openaiChunk = `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`;
+                fullContent += text;
+                res.write(openaiChunk);
+              }
+            } catch {}
+          }
+        }
+      } else {
+        fullContent += chunk;
+        res.write(chunk);
+      }
+    }
+  } catch {}
+  // Deduct actual tokens after stream ends
+  if (apiKey && req?.body?.messages) {
+    const inputTokens = estimateMessagesTokens(req.body.messages);
+    const outputTokens = estimateTokens(fullContent);
+    const totalTokens = inputTokens + outputTokens;
+    const { useCredits, trackTokenUsage } = require('../lib/api-keys');
+    try { await useCredits(apiKey, totalTokens); } catch {}
+    try { await trackTokenUsage(apiKey, totalTokens); } catch {}
+  }
+  return res.end();
+}
+
+// ===== Estimate tokens (simple: ~4 chars per token) =====
+function estimateTokens(text) {
+  return Math.ceil((text || '').length / 4);
+}
+
+function estimateMessagesTokens(messages) {
+  return messages.reduce((sum, m) => sum + estimateTokens(m.content) + 4, 0);
+}
+
+// ===== Provider Call =====
+// Kira rate limit: use global state instead of local variable (works in serverless)
+if (!global.__kiraState) global.__kiraState = { lastCallTime: 0 };
+const KIRA_MIN_DELAY_MS = 1000;
+
+async function callProvider(providerName, model, messages, stream, extraHeaders = {}, tools = null, reasoningOptions = {}) {
+  const provider = PROVIDERS[providerName];
+  if (!provider) throw new Error(`Unknown provider: ${providerName}`);
+
+  // Kira rate limit
+  if (providerName === 'kira') {
+    const now = Date.now();
+    const elapsed = now - global.__kiraState.lastCallTime;
+    if (elapsed < KIRA_MIN_DELAY_MS) await new Promise(r => setTimeout(r, KIRA_MIN_DELAY_MS - elapsed));
+    global.__kiraState.lastCallTime = Date.now();
+  }
+
+  // GitHub Models: use user's own token
+  if (provider.useUserToken) {
+    const userToken = extraHeaders['X-GitHub-Token'];
+    if (!userToken) throw new Error('GitHub token required for GitHub Models. Please connect GitHub in IDE.');
+    const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${userToken}` };
+    const apiModel = model || 'gpt-4o';
+    const url = `${provider.url}/chat/completions`;
+    const body = { model: apiModel, messages, stream: !!stream };
+    // Forward reasoning/thinking options from client
+    if (reasoningOptions.reasoning_effort) body.reasoning_effort = reasoningOptions.reasoning_effort;
+    if (reasoningOptions.reasoning) body.reasoning = reasoningOptions.reasoning;
+    if (reasoningOptions.chat_template_kwargs) body.chat_template_kwargs = reasoningOptions.chat_template_kwargs;
+    const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(`GitHub Models: ${response.status} - ${err.error?.message || JSON.stringify(err)}`);
+    }
+    if (stream) return response;
+    return await response.json();
+  }
+
+  const key = getNextKey(providerName);
+  if (!key && !provider.noKeyRequired) throw new Error(`No keys for provider: ${providerName}`);
+
+  const headers = { 'Content-Type': 'application/json' };
+  if (key && providerName !== 'google') headers['Authorization'] = `Bearer ${key}`;
+  Object.assign(headers, extraHeaders);
+
+  const isGoogle = providerName === 'google';
+  const isCohere = providerName === 'cohere';
+  const apiModel = model || (isGoogle ? 'gemini-2.5-flash' : 'auto');
+
+  let url, body;
+  if (isGoogle) {
+    url = `${provider.url}/models/${apiModel}:generateContent?key=${key}${stream ? '&alt=sse' : ''}`;
+    body = { contents: [{ parts: [{ text: messages.map(m => m.content).join('\n') }] }] };
+  } else if (isCohere) {
+    url = `${provider.url}/chat`;
+    body = { model: apiModel || 'command-r', messages, stream: !!stream };
+  } else {
+    url = `${provider.url}/chat/completions`;
+    body = { model: apiModel, messages, stream: !!stream, temperature: 0.3 };
+    if (tools && tools.length > 0) body.tools = tools;
+    // Forward reasoning/thinking options from client
+    if (reasoningOptions.reasoning_effort) body.reasoning_effort = reasoningOptions.reasoning_effort;
+    if (reasoningOptions.reasoning) body.reasoning = reasoningOptions.reasoning;
+    if (reasoningOptions.chat_template_kwargs) body.chat_template_kwargs = reasoningOptions.chat_template_kwargs;
+  }
+
+  const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(`${providerName}: ${response.status} - ${err.error?.message || JSON.stringify(err)}`);
+  }
+
+  if (stream && !isCohere) {
+    response._isGoogle = isGoogle;
+    return response;
+  }
+
+  const data = await response.json();
+  if (isGoogle) {
+    const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    return { choices: [{ message: { content } }] };
+  }
+  if (isCohere) {
+    const content = data.message?.content?.[0]?.text || data.text || '';
+    return { choices: [{ message: { content } }] };
+  }
+  return data;
+}
+
+// ===== Auto Route with retry =====
+async function callProviderWithRetry(providerName, model, messages, stream, extraHeaders = {}, maxRetries = 2, tools = null, reasoningOptions = {}) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await callProvider(providerName, model, messages, stream, extraHeaders, tools, reasoningOptions);
+    } catch (e) {
+      const isRetryable = e.message.includes('429') || e.message.includes('500') || e.message.includes('502') || e.message.includes('503');
+      if (isRetryable && attempt < maxRetries) {
+        const delay = Math.pow(2, attempt + 1) * 1000;
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+
+async function autoRoute(model, messages, stream, extraHeaders = {}, tools = null, reasoningOptions = {}) {
+  // GitHub Models: route directly to GitHub provider
+  if (model && model.startsWith('github:')) {
+    const githubModel = model.replace('github:', '');
+    return await callProviderWithRetry('github', githubModel, messages, stream, extraHeaders, 2, tools, reasoningOptions);
+  }
+
+  // Prefixed models: openrouter:, llm7:, huggingface:, ovhcloud:
+  if (model && model.includes(':')) {
+    const [prefix, ...modelParts] = model.split(':');
+    const providerName = prefix.toLowerCase();
+    const modelName = modelParts.join(':');
+    if (PROVIDERS[providerName]) {
+      return await callProviderWithRetry(providerName, modelName, messages, stream, extraHeaders, 2, tools, reasoningOptions);
+    }
+  }
+
+  // Direct model → provider routing (for models sent by IDE that aren't in V4_MODELS)
+  const MODEL_ROUTE = {
+    'z-ai/glm-5.1': { provider: 'nvidia', model: 'z-ai/glm-5.1' },
+    'z-ai/glm-4.7-flash-free': { provider: 'nvidia', model: 'z-ai/glm-4.7-flash-free' },
+    'z-ai/glm-5.2-free': { provider: 'nvidia', model: 'z-ai/glm-5.2-free' },
+    'stepfun/step-3.7-flash-free': { provider: 'nvidia', model: 'stepfun-ai/step-3.7-flash' },
+    'step-3.7-flash': { provider: 'nvidia', model: 'stepfun-ai/step-3.7-flash' },
+    'step-3.5-flash': { provider: 'nvidia', model: 'stepfun-ai/step-3.5-flash' },
+  };
+  if (model && MODEL_ROUTE[model]) {
+    const route = MODEL_ROUTE[model];
+    return await callProviderWithRetry(route.provider, route.model, messages, stream, extraHeaders, 2, tools, reasoningOptions);
+  }
+
+  // Map 'auto' to default model per provider
+  const AUTO_MODEL_MAP = {
+    comet: 'claude-opus-4-8',
+    groq: 'llama-3.3-70b-versatile',
+    cerebras: 'llama-3.3-70b',
+    sambanova: 'DeepSeek-V3-0324',
+    nvidia: 'meta/llama-3.3-70b-instruct',
+    openrouter: 'meta-llama/llama-3.3-70b-instruct',
+    mistral: 'mistral-small-latest',
+    cohere: 'command-r',
+    venice: 'venice-uncensored',
+    llm7: 'meta-llama/llama-3.3-70b-instruct',
+    huggingface: 'Qwen/Qwen3-8B',
+    kira: 'kira-3.5-flash',
+    ovhcloud: 'meta-llama/Meta-Llama-3.3-70B-Instruct',
+    google: 'gemini-2.5-flash',
+  };
+
+  const providerList = Object.keys(PROVIDERS)
+    .filter(p => PROVIDERS[p].keys.length > 0 || PROVIDERS[p].noKeyRequired)
+    .sort((a, b) => PROVIDERS[a].priority - PROVIDERS[b].priority);
+
+  let lastError;
+  for (const provider of providerList) {
+    try {
+      const isAuto = (model === 'auto' || model === 'deepcode-go' || model === 'deepcode-pro' || model === 'deepcode-ultra');
+      const providerModel = isAuto ? (AUTO_MODEL_MAP[provider] || 'auto') : model;
+      return await callProviderWithRetry(provider, providerModel, messages, stream, {}, 2, tools, reasoningOptions);
+    } catch (e) {
+      lastError = e.message;
+    }
+  }
+  throw new Error(lastError || 'All providers failed');
+}
+
+// ===== Stream or JSON response =====
+async function respondWithResult(res, result, stream, req, version, sec) {
+  const apiKey = req.headers['x-api-key'];
+
+  if (stream && result?.body) {
+    // Streaming: track tokens after stream ends
+    return handleStreamResponse(res, result, apiKey, req, result._isGoogle);
+  }
+
+  // Non-streaming: deduct actual tokens (input + output)
+  if (!stream && result?.choices?.[0]?.message?.content) {
+    const inputTokens = estimateMessagesTokens(req.body.messages);
+    const outputTokens = estimateTokens(result.choices[0].message.content);
+    const totalTokens = inputTokens + outputTokens;
+    if (apiKey) {
+      const { useCredits, trackTokenUsage } = require('../lib/api-keys');
+      try { await useCredits(apiKey, totalTokens); } catch {}
+      try { await trackTokenUsage(apiKey, totalTokens); } catch {}
+    }
+  }
+  return res.json(result);
+}
+
+// ===== Main Chat Handler =====
+async function handleChat(req, res, version, specificModel) {
+  const sec = await securityCheck(req, version);
+  if (!sec.ok) return res.status(sec.status).json({ error: sec.error });
+
+  const apiKey = req.headers['x-api-key'];
+  const { model, messages, stream, tools } = req.body;
+  const reasoningOptions = {
+    reasoning_effort: req.body.reasoning_effort,
+    reasoning: req.body.reasoning,
+    chat_template_kwargs: req.body.chat_template_kwargs,
+  };
+
+  // v4: model-specific routing
+  if (version === 4 && specificModel) {
+    const modelConfig = V4_MODELS[specificModel];
+    if (!modelConfig) return res.status(400).json({ error: `Unknown model: ${specificModel}. Available: ${Object.keys(V4_MODELS).join(', ')}` });
+
+    const allowedTiers = V4_TIER_RESTRICTED[specificModel];
+    if (allowedTiers && !allowedTiers.includes(sec.userTier)) {
+      return res.status(403).json({ error: `Model ${specificModel} requires: ${allowedTiers.join(', ')} tier`, required: allowedTiers, current: sec.userTier });
+    }
+
+    const githubToken = req.headers['x-github-token'];
+    const extraHeaders = {};
+    if (githubToken) extraHeaders['X-GitHub-Token'] = githubToken;
+
+    try {
+      const result = await callProvider(modelConfig.provider, modelConfig.model, messages, stream, extraHeaders, tools, reasoningOptions);
+      return respondWithResult(res, result, stream, req, version, sec);
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
+  // v4: auto-select or use model from body
+  if (version === 4) {
+    const reqModel = model || 'auto';
+    if (V4_MODELS[reqModel]) return handleChat(req, res, 4, reqModel);
+    try {
+      const result = await autoRoute(reqModel, messages, stream, {}, tools, reasoningOptions);
+      return respondWithResult(res, result, stream, req, version, sec);
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
+  // v5: ZenMux free models
+  if (version === 5) {
+    const reqModel = model || 'claude-sonnet-5-free';
+    if (V5_MODELS[reqModel]) {
+      const modelConfig = V5_MODELS[reqModel];
+      try {
+        const result = await callProvider(modelConfig.provider, modelConfig.model, messages, stream, {}, tools, reasoningOptions);
+        return respondWithResult(res, result, stream, req, version, sec);
+      } catch (e) {
+        return res.status(500).json({ error: e.message });
+      }
+    }
+    return res.status(400).json({ error: `Unknown v5 model: ${reqModel}. Available: ${Object.keys(V5_MODELS).join(', ')}` });
+  }
+
+  // v6: BigModel free models (GLM 5.2)
+  if (version === 6) {
+    const reqModel = model || 'glm-5.2-free';
+    if (V6_MODELS[reqModel]) {
+      const modelConfig = V6_MODELS[reqModel];
+      try {
+        const result = await callProvider(modelConfig.provider, modelConfig.model, messages, stream, {}, tools, reasoningOptions);
+        return respondWithResult(res, result, stream, req, version, sec);
+      } catch (e) {
+        return res.status(500).json({ error: e.message });
+      }
+    }
+    return res.status(400).json({ error: `Unknown v6 model: ${reqModel}. Available: ${Object.keys(V6_MODELS).join(', ')}` });
+  }
+
+  // v1/v2/v3: standard routing
+  const versionConfig = VERSION_MODELS[version];
+  const apiModel = model || versionConfig.defaultModel;
+
+  // Extract GitHub token for GitHub Models routing
+  const githubToken = req.headers['x-github-token'];
+  const extraHeaders = {};
+  if (githubToken) extraHeaders['X-GitHub-Token'] = githubToken;
+
+  // All versions: check V4_MODELS first for model-specific routing
+  if (apiModel && V4_MODELS[apiModel]) {
+    const modelConfig = V4_MODELS[apiModel];
+    try {
+      const result = await callProvider(modelConfig.provider, modelConfig.model, messages, stream, extraHeaders, tools, reasoningOptions);
+      return respondWithResult(res, result, stream, req, version, sec);
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
+  if (version === 2) {
+    const proModel = model || 'z-ai/glm-4.7-flash-free';
+    try {
+      const result = await autoRoute(proModel, messages, stream, extraHeaders, tools, reasoningOptions);
+      return respondWithResult(res, result, stream, req, version, sec);
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
+  if (version === 3) {
+    const ultraModel = model || 'z-ai/glm-5.1';
+    try {
+      const result = await autoRoute(ultraModel, messages, stream, extraHeaders, tools, reasoningOptions);
+      return respondWithResult(res, result, stream, req, version, sec);
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
+  // v1: DeepCode Go (default, auto model)
+  try {
+    const result = await autoRoute(apiModel, messages, stream, extraHeaders, tools, reasoningOptions);
+    return respondWithResult(res, result, stream, req, version, sec);
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+}
+
+// ===== Models Handler =====
+function handleModels(req, res) {
+  const models = Object.entries(VERSION_MODELS).map(([v, c]) => ({
+    version: parseInt(v),
+    label: c.label,
+    defaultModel: c.defaultModel,
+  }));
+
+  const v4Models = Object.entries(V4_MODELS).map(([id, m]) => ({
+    id,
+    name: m.name,
+    provider: m.provider,
+    model: m.model,
+    tiers: V4_TIER_RESTRICTED[id] || [],
+  }));
+
+  const v5Models = Object.entries(V5_MODELS).map(([id, m]) => ({
+    id,
+    name: m.name,
+    provider: m.provider,
+    model: m.model,
+  }));
+
+  const v6Models = Object.entries(V6_MODELS).map(([id, m]) => ({
+    id,
+    name: m.name,
+    provider: m.provider,
+    model: m.model,
+  }));
+
+  // All available models for IDE dropdown (single source of truth)
+  const allModels = [
+    // Free tier models
+    { id: 'auto', name: 'DeepCode', tier: 'free', gatewayVersion: 'v1' },
+    { id: 'deepcode-go', name: 'DeepCode 4.8', tier: 'free', gatewayVersion: 'v1' },
+    { id: 'deepcode-pro', name: 'DeepCode 5.2', tier: 'free', gatewayVersion: 'v1' },
+    { id: 'deepcode-ultra', name: 'DeepCode 5.5', tier: 'free', gatewayVersion: 'v1' },
+    { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', tier: 'free', gatewayVersion: 'v4' },
+    // Free models from other providers
+    { id: 'claude-sonnet-5-free', name: 'Claude Sonnet 5 Free', tier: 'free', gatewayVersion: 'v5' },
+    { id: 'glm-5.2-free', name: 'GLM 5.2 Free', tier: 'free', gatewayVersion: 'v6' },
+    // Pro tier models
+    { id: 'claude-opus-4-7', name: 'Claude Opus 4.7', tier: 'pro', gatewayVersion: 'v4' },
+    { id: 'claude-opus-4-8', name: 'Claude Opus 4.8', tier: 'pro', gatewayVersion: 'v4' },
+    { id: 'claude-sonnet-5', name: 'Claude Sonnet 5', tier: 'pro', gatewayVersion: 'v4' },
+    { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', tier: 'pro', gatewayVersion: 'v4' },
+    { id: 'gpt-5', name: 'GPT-5', tier: 'pro', gatewayVersion: 'v4' },
+    { id: 'gpt-4.1', name: 'GPT-4.1', tier: 'pro', gatewayVersion: 'v4' },
+    { id: 'deepseek-v4', name: 'DeepSeek V4', tier: 'pro', gatewayVersion: 'v4' },
+    { id: 'z-ai/glm-5.1', name: 'GLM 5.1', tier: 'pro', gatewayVersion: 'v2' },
+    // Premium tier models
+    { id: 'gpt-5.5', name: 'GPT-5.5', tier: 'premium', gatewayVersion: 'v4' },
+    { id: 'z-ai/glm-5.2-free', name: 'GLM 5.2 Free', tier: 'premium', gatewayVersion: 'v3' },
+  ];
+
+  return res.json({ models, v4Models, v5Models, v6Models, allModels, providers: Object.keys(PROVIDERS) });
+}
+
+// ===== Health Check Handler =====
+function handleHealth(req, res) {
+  const providers = {};
+  for (const [name, p] of Object.entries(PROVIDERS)) {
+    providers[name] = { hasKeys: p.keys.length > 0, priority: p.priority };
+  }
+  return res.json({ status: 'ok', timestamp: new Date().toISOString(), providers });
+}
+
+// ===== Export =====
+module.exports = async function handler(req, res) {
+  if (handleCors(res, req)) return;
+
+  let url;
+  try {
+    url = new URL(req.url, 'http://localhost');
+  } catch {
+    return res.status(400).json({ error: 'Invalid URL' });
+  }
+
+  const pathParts = url.pathname.split('/').filter(Boolean);
+
+  // GET endpoints
+  if (req.method === 'GET') {
+    const adminSecret = req.headers['x-admin-secret'];
+
+    // Health check
+    if (pathParts.includes('health')) return handleHealth(req, res);
+
+    // Models
+    if (pathParts.includes('models')) return handleModels(req, res);
+
+    // Config — single source of truth for IDE
+    if (pathParts.includes('config')) return require('./config').handleConfig(req, res);
+
+    // Security admin: stats
+    if (pathParts.includes('stats')) {
+      if (!adminSecret || adminSecret !== process.env.GATEWAY_SECRET) return res.status(401).json({ error: 'Unauthorized' });
+      return res.json(getSecurityStats());
+    }
+
+    // Security admin: audit
+    if (pathParts.includes('audit')) {
+      if (!adminSecret || adminSecret !== process.env.GATEWAY_SECRET) return res.status(401).json({ error: 'Unauthorized' });
+      const limit = parseInt(url.searchParams.get('limit')) || 100;
+      return res.json({ entries: getAuditLog(limit) });
+    }
+
+    return res.status(404).json({ error: 'Not found' });
+  }
+
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  // Parse version and optional model from URL
+  let version = 1;
+  let specificModel = null;
+  if (pathParts[0] && pathParts[0].startsWith('v')) version = parseInt(pathParts[0].substring(1)) || 1;
+  if (pathParts.length > 3 && pathParts[0].startsWith('v')) specificModel = pathParts[3];
+
+  // Direct model route: /chat/completions/{modelName} (no version prefix)
+  // IDE sends specific models here to skip autoRoute and go straight to provider
+  if (pathParts[0] === 'chat' && pathParts[1] === 'completions' && pathParts.length >= 3) {
+    const directModel = pathParts[2];
+    if (directModel && V4_MODELS[directModel]) {
+      const modelConfig = V4_MODELS[directModel];
+      const sec = await securityCheck(req, 4);
+      if (!sec.ok) return res.status(sec.status).json({ error: sec.error });
+
+      const githubToken = req.headers['x-github-token'];
+      const extraHeaders = {};
+      if (githubToken) extraHeaders['X-GitHub-Token'] = githubToken;
+
+      const reasoningOptions = {
+        reasoning_effort: req.body.reasoning_effort,
+        reasoning: req.body.reasoning,
+        chat_template_kwargs: req.body.chat_template_kwargs,
+      };
+
+      try {
+        const result = await callProvider(modelConfig.provider, modelConfig.model, req.body.messages, req.body.stream, extraHeaders, req.body.tools, reasoningOptions);
+        return respondWithResult(res, result, req.body.stream, req, 4, sec);
+      } catch (e) {
+        return res.status(500).json({ error: e.message });
+      }
+    }
+    // Unknown direct model — fallback to autoRoute
+    const sec = await securityCheck(req, 1);
+    if (!sec.ok) return res.status(sec.status).json({ error: sec.error });
+    try {
+      const result = await autoRoute(directModel, req.body.messages, req.body.stream, {}, req.body.tools, {});
+      return respondWithResult(res, result, req.body.stream, req, 1, sec);
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
+  return handleChat(req, res, version, specificModel);
+};
