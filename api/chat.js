@@ -51,44 +51,34 @@ const PROVIDERS = {
   llm7: {
     url: 'https://api.llm7.io/v1',
     keys: (process.env.LLM7_KEYS || '').split(',').filter(Boolean),
-    priority: 14,
+    priority: 10,
     noKeyRequired: true,
   },
   huggingface: {
     url: 'https://api-inference.huggingface.co/v1',
     keys: (process.env.HUGGINGFACE_KEYS || '').split(',').filter(Boolean),
-    priority: 15,
-  },
-  glm5: {
-    url: 'https://glm5.app/api/v1',
-    keys: (process.env.GLM5_KEYS || '').split(',').filter(Boolean),
-    priority: 12,
-  },
-  comet: {
-    url: 'https://api.cometapi.com/v1',
-    keys: (process.env.COMET_KEYS || '').split(',').filter(Boolean),
-    priority: 1,
+    priority: 11,
   },
   kira: {
     url: 'https://kiraai.vn/api/v1',
     keys: (process.env.KIRA_KEYS || '').split(',').filter(Boolean),
-    priority: 13,
+    priority: 12,
   },
   ovhcloud: {
     url: 'https://api.ovhcloud.com/v1',
     keys: (process.env.OVHCLOUD_KEYS || '').split(',').filter(Boolean),
-    priority: 16,
+    priority: 13,
     noKeyRequired: true,
   },
   google: {
     url: 'https://generativelanguage.googleapis.com/v1beta',
     keys: (process.env.GOOGLE_KEYS || '').split(',').filter(Boolean),
-    priority: 17,
+    priority: 14,
   },
   github: {
     url: 'https://models.inference.ai.azure.com/v1',
     keys: [], // Uses user's own GitHub token via X-GitHub-Token header
-    priority: 18,
+    priority: 15,
     useUserToken: true,
   },
 };
@@ -114,10 +104,7 @@ const VERSION_MODELS = {
 
 // v4 model-specific routing
 const V4_MODELS = {
-  'claude-haiku-4-5': { provider: 'comet', model: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
-  'claude-opus-4-7': { provider: 'comet', model: 'claude-opus-4-7', name: 'Claude Opus 4.7' },
-  'claude-opus-4-8': { provider: 'comet', model: 'claude-opus-4-8', name: 'Claude Opus 4.8' },
-  'claude-sonnet-5': { provider: 'comet', model: 'claude-sonnet-5', name: 'Claude Sonnet 5' },
+  'claude-opus-4-8': { provider: 'openrouter', model: 'anthropic/claude-opus-4', name: 'Claude Opus 4.8' },
   'claude-sonnet-4': { provider: 'openrouter', model: 'anthropic/claude-sonnet-4', name: 'Claude Sonnet 4' },
   'gpt-5': { provider: 'openrouter', model: 'openai/gpt-5', name: 'GPT-5' },
   'gpt-4.1': { provider: 'openrouter', model: 'openai/gpt-4.1', name: 'GPT-4.1' },
@@ -166,10 +153,7 @@ const V4_MODELS = {
 
 // v4 tier restrictions
 const V4_TIER_RESTRICTED = {
-  'claude-haiku-4-5': ['free', 'pro', 'premium', 'business'],
-  'claude-opus-4-7': ['pro', 'premium', 'business'],
   'claude-opus-4-8': ['pro', 'premium', 'business'],
-  'claude-sonnet-5': ['pro', 'premium', 'business'],
   'claude-sonnet-4': ['pro', 'premium', 'business'],
   'gpt-5': ['premium', 'business'],
   'gpt-4.1': ['pro', 'premium', 'business'],
@@ -211,11 +195,6 @@ const V4_TIER_RESTRICTED = {
 // v5 models — ZenMux free tier (Claude Sonnet 5)
 const V5_MODELS = {
   'claude-sonnet-5-free': { provider: 'zenmux', model: 'anthropic/claude-sonnet-5-free', name: 'Claude Sonnet 5 Free' },
-};
-
-// v6 models — GLM5.app free tier (GLM 5.2)
-const V6_MODELS = {
-  'glm-5.2-free': { provider: 'glm5', model: 'glm-5.2', name: 'GLM 5.2 Free' },
 };
 
 // ===== Allowed CORS origins =====
@@ -434,7 +413,6 @@ async function autoRoute(model, messages, stream, extraHeaders = {}, tools = nul
 
   // Map 'auto' to default model per provider
   const AUTO_MODEL_MAP = {
-    comet: 'claude-opus-4-8',
     groq: 'llama-3.3-70b-versatile',
     cerebras: 'llama-3.3-70b',
     sambanova: 'DeepSeek-V3-0324',
@@ -552,21 +530,6 @@ async function handleChat(req, res, version, specificModel) {
     return res.status(400).json({ error: `Unknown v5 model: ${reqModel}. Available: ${Object.keys(V5_MODELS).join(', ')}` });
   }
 
-  // v6: BigModel free models (GLM 5.2)
-  if (version === 6) {
-    const reqModel = model || 'glm-5.2-free';
-    if (V6_MODELS[reqModel]) {
-      const modelConfig = V6_MODELS[reqModel];
-      try {
-        const result = await callProvider(modelConfig.provider, modelConfig.model, messages, stream, {}, tools, reasoningOptions);
-        return respondWithResult(res, result, stream, req, version, sec);
-      } catch (e) {
-        return res.status(500).json({ error: e.message });
-      }
-    }
-    return res.status(400).json({ error: `Unknown v6 model: ${reqModel}. Available: ${Object.keys(V6_MODELS).join(', ')}` });
-  }
-
   // v1/v2/v3: standard routing
   const versionConfig = VERSION_MODELS[version];
   const apiModel = model || versionConfig.defaultModel;
@@ -639,39 +602,7 @@ function handleModels(req, res) {
     model: m.model,
   }));
 
-  const v6Models = Object.entries(V6_MODELS).map(([id, m]) => ({
-    id,
-    name: m.name,
-    provider: m.provider,
-    model: m.model,
-  }));
-
-  // All available models for IDE dropdown (single source of truth)
-  const allModels = [
-    // Free tier models
-    { id: 'auto', name: 'DeepCode', tier: 'free', gatewayVersion: 'v1' },
-    { id: 'deepcode-go', name: 'DeepCode 4.8', tier: 'free', gatewayVersion: 'v1' },
-    { id: 'deepcode-pro', name: 'DeepCode 5.2', tier: 'free', gatewayVersion: 'v1' },
-    { id: 'deepcode-ultra', name: 'DeepCode 5.5', tier: 'free', gatewayVersion: 'v1' },
-    { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', tier: 'free', gatewayVersion: 'v4' },
-    // Free models from other providers
-    { id: 'claude-sonnet-5-free', name: 'Claude Sonnet 5 Free', tier: 'free', gatewayVersion: 'v5' },
-    { id: 'glm-5.2-free', name: 'GLM 5.2 Free', tier: 'free', gatewayVersion: 'v6' },
-    // Pro tier models
-    { id: 'claude-opus-4-7', name: 'Claude Opus 4.7', tier: 'pro', gatewayVersion: 'v4' },
-    { id: 'claude-opus-4-8', name: 'Claude Opus 4.8', tier: 'pro', gatewayVersion: 'v4' },
-    { id: 'claude-sonnet-5', name: 'Claude Sonnet 5', tier: 'pro', gatewayVersion: 'v4' },
-    { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', tier: 'pro', gatewayVersion: 'v4' },
-    { id: 'gpt-5', name: 'GPT-5', tier: 'pro', gatewayVersion: 'v4' },
-    { id: 'gpt-4.1', name: 'GPT-4.1', tier: 'pro', gatewayVersion: 'v4' },
-    { id: 'deepseek-v4', name: 'DeepSeek V4', tier: 'pro', gatewayVersion: 'v4' },
-    { id: 'z-ai/glm-5.1', name: 'GLM 5.1', tier: 'pro', gatewayVersion: 'v2' },
-    // Premium tier models
-    { id: 'gpt-5.5', name: 'GPT-5.5', tier: 'premium', gatewayVersion: 'v4' },
-    { id: 'z-ai/glm-5.2-free', name: 'GLM 5.2 Free', tier: 'premium', gatewayVersion: 'v3' },
-  ];
-
-  return res.json({ models, v4Models, v5Models, v6Models, allModels, providers: Object.keys(PROVIDERS) });
+  return res.json({ models, v4Models, v5Models, providers: Object.keys(PROVIDERS) });
 }
 
 // ===== Health Check Handler =====
@@ -705,9 +636,6 @@ module.exports = async function handler(req, res) {
 
     // Models
     if (pathParts.includes('models')) return handleModels(req, res);
-
-    // Config — single source of truth for IDE
-    if (pathParts.includes('config')) return require('./config').handleConfig(req, res);
 
     // Security admin: stats
     if (pathParts.includes('stats')) {
